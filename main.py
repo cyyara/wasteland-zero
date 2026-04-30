@@ -11,6 +11,8 @@ from OpenGL.GLU import *
 from OpenGL.GLUT import *
 import math
 import random
+import time
+import numpy 
 
 class Camera:
     angle = 0
@@ -247,17 +249,20 @@ class Game:
     isImplemented = False
 
 class Sky:
-    dayColor = (0, 0, 1)
-    nightColor = (0.2, 0.2, 0.2)
+    dayColor = numpy.array([0.95, 0.824, 0.06])
+    nightColor = numpy.array([0.1, 0.1, 0.1])
+    cycleDuration = 30
+    startTime = time.time()
 
     @classmethod
-    def setDay(cls):
-        glClearColor(*cls.dayColor, 1)
-
+    def isNight(cls):
+        return (time.time() - cls.startTime) >= cls.cycleDuration
+    
     @classmethod
-    def setNight(cls):
-        glClearColor(*cls.nightColor, 1)
-
+    def updateBackground(cls):
+        progress = min((((time.time()-cls.startTime)/cls.cycleDuration)), 1)
+        currentColor = cls.dayColor+(cls.nightColor-cls.dayColor)*progress
+        glClearColor(*currentColor, 1)
 
 
 def keyboardListener(key, x, y):
@@ -294,7 +299,7 @@ def animate():
 
 
 def display():
-    Sky.setNight()
+    Sky.updateBackground()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()  # Reset modelview matrix
     glViewport(0, 0, Window.width, Window.height)
