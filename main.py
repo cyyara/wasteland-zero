@@ -249,21 +249,33 @@ class Game:
     isImplemented = False
 
 class Sky:
-    dayColor = numpy.array([0.95, 0.824, 0.06])
-    nightColor = numpy.array([0.1, 0.1, 0.1])
-    cycleDuration = 30
+    dayColor = numpy.array([0.306, 0.871, 0.149])
+    nightColor = numpy.array([0.431, 0.169, 0.325])
+    phaseDuration = 30
     startTime = time.time()
 
     @classmethod
-    def isNight(cls):
-        return (time.time() - cls.startTime) >= cls.cycleDuration
+    def getPhase(cls):
+        elapsedTime = time.time() - cls.startTime
+        fullCycleTime = cls.phaseDuration * 2
+        cycleTime = elapsedTime % fullCycleTime
+
+        isNight = cycleTime >= cls.phaseDuration
+        progress = (cycleTime % cls.phaseDuration) / cls.phaseDuration
+
+        return isNight, progress
     
     @classmethod
     def updateBackground(cls):
-        progress = min((((time.time()-cls.startTime)/cls.cycleDuration)), 1)
-        currentColor = cls.dayColor+(cls.nightColor-cls.dayColor)*progress
-        glClearColor(*currentColor, 1)
+        isNight, progress = cls.getPhase()
 
+        if isNight:
+            currentColor = cls.dayColor + (cls.nightColor - cls.dayColor) * progress
+
+        else:
+            currentColor = cls.nightColor + (cls.dayColor - cls.nightColor) * progress
+
+        glClearColor(*currentColor, 1)
 
 def keyboardListener(key, x, y):
 
@@ -313,11 +325,11 @@ glutInit()
 glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH) 
 glutInitWindowSize(Window.width, Window.height)
 glutInitWindowPosition(0, 0)
-glutCreateWindow(b"CSE423 | Lab03")
+glutCreateWindow(b"Wasteland Zero")
 glEnable(GL_DEPTH_TEST)
 glutDisplayFunc(display)
 glutKeyboardFunc(keyboardListener)
 glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
-glutMainLoop() 
+glutMainLoop()
