@@ -7,7 +7,7 @@ Lab Project for CSE423
 I (Shaiara) am currently planning on implementing:
 1. Camera system
 2. Player model and movement
-3. Day and night cycle
+3. Day and night cycle (completed)
 4. World & Level Design
 5. Environmental Hazard
 6. Prologue
