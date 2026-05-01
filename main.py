@@ -343,6 +343,103 @@ class Gun:
         for bullet in cls.bullets:
             bullet.draw()
 
+    @classmethod
+    def addAmmo(cls, amount):
+        cls.currentAmmo = min(cls.maxAmmo, cls.currentAmmo + amount)
+
+class HealthPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (1, 1, 1) # White
+        self.crossColor = (1, 0, 0) # Red
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        
+        # Red cross
+        glColor3f(*self.crossColor)
+        # Vertical bar
+        glPushMatrix()
+        glScalef(0.25, 1.0, 0.25)
+        glutSolidCube(60)
+        glPopMatrix()
+        # Horizontal bar
+        glPushMatrix()
+        glScalef(1.0, 0.25, 0.25)
+        glutSolidCube(60)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.heal(30)
+
+class AmmoPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.2, 0.2, 0.2) # Dark grey
+        self.tipColor = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        
+        # Center the bullet for rotation
+        glTranslatef(0, 0, -35) 
+        
+        # Back Casing half
+        glColor3f(*self.color)
+        gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
+        
+        # Close the bottom of the casing with a sphere cap
+        glPushMatrix()
+        glScalef(1.0, 1.0, 0.3) # Flatten the sphere into a cap
+        glutSolidSphere(15, 10, 10)
+        glPopMatrix()
+        
+        # Front Casing half (Same as tip color)
+        glTranslatef(0, 0, 25)
+        glColor3f(*self.tipColor) 
+        gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
+
+        # Bullet tip
+        glTranslatef(0, 0, 25)
+        glColor3f(*self.tipColor)
+        gluCylinder(gluNewQuadric(), 15, 0, 20, 10, 10)
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        Gun.addAmmo(10)
+
+class FoodPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.2, 0.8, 0.2) # Green
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        glColor3f(*self.color)
+        glutSolidSphere(25, 12, 12)
+        glPopMatrix()
+
+    def apply(self, player):
+        player.addFood(1)
+
 class Game:
     isImplemented = False
 
