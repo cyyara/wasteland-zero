@@ -170,57 +170,71 @@ class Player:
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
 
+        legXOffset = cls.bodyWidth * cls.legXOffsetFactor
+        handY = cls.legHeight + (cls.bodyHeight / cls.handYDivisor)
+        gunY = cls.legHeight + (cls.bodyHeight / cls.gunYDivisor)
+        gunZ = cls.bodyWidth * cls.gunZOffsetFactor
+
         # Right leg
-        glColor3f(0.08, 0.12, 0.35)
+        glColor3f(*cls.legColor)
         glPushMatrix()
-        glTranslatef(-cls.bodyWidth/4, 0, 0)
+        glTranslatef(-legXOffset, 0, 0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, 10, 10)
+        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Left leg
-        glColor3f(0.08, 0.12, 0.35)
+        glColor3f(*cls.legColor)
         glPushMatrix()
-        glTranslatef(cls.bodyWidth/4, 0, 0)
+        glTranslatef(legXOffset, 0, 0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, 10, 10)
+        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
 
         # Body
-        glColor3f(0.50, 0.10, 0.18)
+        glColor3f(*cls.bodyColor)
         glPushMatrix()
         glTranslatef(0, cls.legHeight + cls.bodyHeight / 2, 0)
-        glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyWidth)
+        glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyThickness)
         glutSolidCube(1)
         glPopMatrix()
 
         # Right hand
-        glColor3f(0.8, 0.5, 0.25)
+        glColor3f(*cls.handColor)
         glPushMatrix()
-        glTranslatef(cls.bodyWidth/2 - cls.handBaseRadius, cls.legHeight + (cls.bodyHeight/1.4), 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, 10, 10)
+        glTranslatef(cls.bodyWidth/2 - cls.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Left hand
-        glColor3f(0.8, 0.5, 0.25)
+        glColor3f(*cls.handColor)
         glPushMatrix()
-        glTranslatef(-cls.bodyWidth/2 + cls.handBaseRadius, cls.legHeight + (cls.bodyHeight/1.4), 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, 10, 10)
+        glTranslatef(-cls.bodyWidth/2 + cls.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Head
-        glColor3f(0, 0, 0)
+        glColor3f(*cls.headColor)
         glPushMatrix()
         glTranslatef(0, cls.legHeight + cls.bodyHeight + cls.headRadius, 0)
-        glutSolidSphere(cls.headRadius, 20, 20)
+        glutSolidSphere(cls.headRadius, cls.headSlices, cls.headStacks)
         glPopMatrix()
 
         # Gun
-        glColor3f(0.85, 0.85, 0.85)
+        glColor3f(*cls.gunColor)
         glPushMatrix()
-        glTranslatef(10, cls.legHeight + (cls.bodyHeight/1.2), cls.bodyWidth/2)
-        gluCylinder(gluNewQuadric(), cls.gunBaseRadius, cls.gunTopRadius, cls.gunLength, 10, 10)
+        glTranslatef(cls.gunXOffset, gunY, gunZ)
+        gluCylinder(gluNewQuadric(), cls.gunBaseRadius, cls.gunTopRadius, cls.gunLength, cls.cylinderSlices, cls.cylinderStacks)
+
+        # Gun handle
+        glColor3f(*cls.gunHandleColor)
+        glPushMatrix()
+        glTranslatef(cls.gunHandleXOffset, cls.gunHandleYOffset, cls.gunHandleZOffset)
+        glScalef(cls.gunHandleWidth, cls.gunHandleHeight, cls.gunHandleThickness)
+        glutSolidCube(1)
+        glPopMatrix()
+
         glPopMatrix()
 
         glPopMatrix()
