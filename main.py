@@ -50,12 +50,13 @@ class Tile:
     def __init__(self, x, z):
         self.x = x
         self.z = z
+        self.object = None
         base = random.uniform(0.30, 0.45)
         r = base + random.uniform(0.03, 0.08)
         g = base + random.uniform(-0.01, 0.03)
         b = base + random.uniform(-0.04, 0.01)
-        # self.color = (random.random(), random.random(), random.random())
         self.color = (r, g, b)
+
     def draw(self):
         startX = self.x - self.length/2
         endX = startX + self.length
@@ -68,6 +69,12 @@ class Tile:
         glVertex3f(endX, 0, endZ)
         glVertex3f(startX, 0, endZ)
         glEnd()
+
+        if self.object:
+            self.object.draw()
+
+    def spawnObject(self, spawnable):
+        self.object = spawnable(self.x, self.z)
 
 class AcidicTile(Tile):
     def __init__(self, x, z):
@@ -114,7 +121,13 @@ class Floor:
         for r in range(cls.rows):
             for c in range(cls.cols):
                 cls.tiles[r][c].draw()
-                
+    @classmethod
+    def getTile(cls, x, z):
+        col = int((x - cls.startX) / Tile.length)
+        row = int((z - cls.startZ) / Tile.width)
+        if 0 <= row < cls.rows and 0 <= col < cls.cols:
+            return cls.tiles[row][col]
+        return None
 
 class Player:
     headRadius = 25
