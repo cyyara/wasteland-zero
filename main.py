@@ -43,7 +43,7 @@ class Camera:
 
 class Window:
     width = 1000
-    height = 800
+    height = 700
 
 class Tile:
     length = width = 150
@@ -151,11 +151,19 @@ class Player:
     x = 0
     z = 0
     angle = 0
-    walkSpeed = 5
+    walkSpeed = 15
     turnSpeed = 3
     health = 100
     maxHealth = 100
     food = 0
+    keys = 0
+    immunity = 0
+    
+    # Vehicle system
+    mode = "human" # "human" or "saucer"
+    saucerHealth = 300
+    maxSaucerHealth = 300
+    saucerSpeed = 45
 
     # Tunable render settings
     legColor = (0.08, 0.12, 0.35)
@@ -182,6 +190,13 @@ class Player:
 
     @classmethod
     def draw(cls):
+        if cls.mode == "human":
+            cls.drawHuman()
+        else:
+            cls.drawSaucer()
+
+    @classmethod
+    def drawHuman(cls):
         glPushMatrix()
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
@@ -255,18 +270,63 @@ class Player:
 
         glPopMatrix()
 
+    @classmethod
+    def drawSaucer(cls):
+        glPushMatrix()
+        # Hover effect
+        hoverY = 40 + math.sin(time.time() * 3) * 15
+        glTranslatef(cls.x, hoverY, cls.z)
+        glRotatef(cls.angle, 0, 1, 0)
+
+        # Main Body
+        glColor3f(0.5, 0.5, 0.5) # Silver
+        glPushMatrix()
+        glScalef(3.0, 0.6, 3.0)
+        glutSolidSphere(40, 20, 20)
+        glPopMatrix()
+
+        # Cockpit Dome (More protruding)
+        glColor3f(0.0, 0.8, 1.0) # Cyan
+        glPushMatrix()
+        glTranslatef(0, 18, 0) # Higher up
+        glScalef(1.0, 1.3, 1.0) # Taller dome
+        glutSolidSphere(25, 20, 20)
+        glPopMatrix()
+
+        # Lights
+        for i in range(8):
+            angle = i * (360/8)
+            rad = math.radians(angle)
+            lx = 100 * math.cos(rad)
+            lz = 100 * math.sin(rad)
+            glPushMatrix()
+            glTranslatef(lx, -5, lz)
+            glColor3f(1.0, 1.0, 0.0) # Yellow lights
+            glutSolidSphere(5, 10, 10)
+            glPopMatrix()
+        # Navigation Light (Direction indicator - Front)
+        glPushMatrix()
+        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glColor3f(1.0, 0.5, 0.0) # Bright orange
+        glutSolidSphere(10, 10, 10)
+        glPopMatrix()
+
+        glPopMatrix()
+
 
     @classmethod
     def moveForward(cls):
+        speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x + cls.walkSpeed * math.sin(rad)
-        cls.z = cls.z + cls.walkSpeed * math.cos(rad)
+        cls.x = cls.x + speed * math.sin(rad)
+        cls.z = cls.z + speed * math.cos(rad)
 
     @classmethod
     def moveBackward(cls):
+        speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x - cls.walkSpeed * math.sin(rad)
-        cls.z = cls.z - cls.walkSpeed * math.cos(rad)
+        cls.x = cls.x - speed * math.sin(rad)
+        cls.z = cls.z - speed * math.cos(rad)
 
     @classmethod
     def turnLeft(cls):
@@ -283,6 +343,17 @@ class Player:
     @classmethod
     def addFood(cls, amount):
         cls.food += amount
+
+    @classmethod
+    def addImmunity(cls, amount):
+        cls.immunity += amount
+
+    @classmethod
+    def useKey(cls):
+        if cls.keys > 0:
+            cls.keys -= 1
+            return True
+        return False
    
 
 class Bullet:
@@ -377,7 +448,10 @@ class HealthPack:
         glPopMatrix()
 
     def apply(self, player):
-        player.heal(30)
+        if player.health < player.maxHealth:
+            player.heal(30)
+            return True
+        return False
 
 class AmmoPack:
     def __init__(self, x, z):
@@ -419,7 +493,10 @@ class AmmoPack:
         glPopMatrix()
 
     def apply(self, player):
-        Gun.addAmmo(10)
+        if Gun.currentAmmo < Gun.maxAmmo:
+            Gun.addAmmo(10)
+            return True
+        return False
 
 class FoodPack:
     def __init__(self, x, z):
@@ -439,6 +516,200 @@ class FoodPack:
 
     def apply(self, player):
         player.addFood(1)
+        return True
+
+class SaucerVehicle:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+    
+    def draw(self):
+        glPushMatrix()
+        # Hover effect for pickup
+        hoverY = self.y + math.sin(time.time() * 2) * 10
+        glTranslatef(self.x, hoverY, self.z)
+        
+        # Scale down for pickup
+        glScalef(0.4, 0.4, 0.4)
+        
+        # Body
+        glColor3f(0.6, 0.6, 0.6)
+        glPushMatrix()
+        glScalef(3.0, 0.6, 3.0)
+        glutSolidSphere(40, 15, 15)
+        glPopMatrix()
+        
+        # Dome (More protruding)
+        glColor3f(0.0, 0.8, 1.0)
+        glPushMatrix()
+        glTranslatef(0, 15, 0)
+        glScalef(1.0, 1.3, 1.0)
+        glutSolidSphere(20, 15, 15)
+        glPopMatrix()
+
+        # Front Indicator (For pickup)
+        glPushMatrix()
+        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glColor3f(1.0, 0.5, 0.0)
+        glutSolidSphere(10, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.mode = "saucer"
+        return True
+
+class HUD:
+    @staticmethod
+    def draw_text(x, y, text, color=(1, 1, 1)):
+        glColor3f(*color)
+        glRasterPos2f(x, y)
+        for char in text:
+            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(char))
+
+    @staticmethod
+    def draw_bar(x, y, width, height, progress, bar_color, bg_color=(0.2, 0.2, 0.2)):
+        # Background
+        glColor3f(*bg_color)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y)
+        glVertex2f(x + width, y)
+        glVertex2f(x + width, y + height)
+        glVertex2f(x, y + height)
+        glEnd()
+
+        # Progress
+        glColor3f(*bar_color)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y)
+        glVertex2f(x + (width * progress), y)
+        glVertex2f(x + (width * progress), y + height)
+        glVertex2f(x, y + height)
+        glEnd()
+
+    @classmethod
+    def draw(cls):
+        # Switch to 2D
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, Window.width, 0, Window.height)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        glDisable(GL_DEPTH_TEST)
+
+        # Draw Health Bar (Top Left)
+        hp_progress = Player.health / Player.maxHealth
+        cls.draw_bar(20, Window.height - 40, 200, 20, hp_progress, (0.8, 0.1, 0.1))
+        cls.draw_text(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
+
+        # Draw Food Bar (Below Health)
+        food_limit = 10 # Example limit for the bar scale
+        food_progress = min(1.0, Player.food / food_limit)
+        cls.draw_bar(20, Window.height - 90, 200, 15, food_progress, (0.1, 0.8, 0.1))
+        cls.draw_text(20, Window.height - 110, f"FOOD: {Player.food}")
+
+        # Draw Ammo (Top Right)
+        cls.draw_text(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo} / {Gun.maxAmmo}")
+
+        # Draw Keys (Below Ammo)
+        cls.draw_text(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
+
+        # Draw Immunity (If active)
+        if Player.immunity > 0:
+            seconds = int(Player.immunity / 60) # Assuming ~60fps
+            cls.draw_text(Window.width // 2 - 50, Window.height - 40, f"SHIELD: {seconds}s", (0.2, 0.8, 1.0))
+
+        glEnable(GL_DEPTH_TEST)
+        
+        # Switch back to 3D
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+
+class Key:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0)
+        
+        glColor3f(*self.color)
+        
+        # Shaft (Horizontal)
+        glPushMatrix()
+        glTranslatef(0, 0, -10) # Center the 40-unit shaft (partially)
+        glScalef(0.2, 0.2, 1.0)
+        glutSolidCube(40)
+        glPopMatrix()
+        
+        # Ring (Bow)
+        glPushMatrix()
+        glTranslatef(0, 0, 15)
+        glutSolidSphere(8, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.keys += 1
+        return True
+
+class Chest:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.4, 0.2, 0.1) # Brown
+        self.lockColor = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0)
+        
+        # Chest Body (Wider)
+        glColor3f(*self.color)
+        glPushMatrix()
+        glScalef(1.5, 1.0, 1.0)
+        glutSolidCube(40)
+        glPopMatrix()
+        
+        # Lock
+        glPushMatrix()
+        glTranslatef(0, 0, 20)
+        glColor3f(*self.lockColor)
+        glutSolidCube(8)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        if player.useKey():
+            # Grant Immunity
+            player.addImmunity(600)
+            
+            # Random reward
+            reward = random.choice(['hp', 'ammo', 'food'])
+            if reward == 'hp': player.heal(60)
+            elif reward == 'ammo': Gun.addAmmo(30)
+            else: player.addFood(3)
+            
+            return True
+        return False
 
 class Game:
     isImplemented = False
@@ -523,15 +794,21 @@ def display():
     Camera.setupCamera()
     Floor.draw()
     Player.draw()
-    
+
+    # Update survival logic
+    if Player.immunity > 0:
+        Player.immunity -= 1
     # Pickup collection logic
     currentTile = Floor.getTile(Player.x, Player.z)
     if currentTile and currentTile.object:
-        currentTile.object.apply(Player)
-        currentTile.object = None
+        if currentTile.object.apply(Player):
+            currentTile.object = None
 
     Gun.updateBullets()
     Gun.drawBullets()
+
+    HUD.draw()
+    
     glutSwapBuffers()
 
 
@@ -550,4 +827,7 @@ glutIdleFunc(animate)
 Floor.getTile(300, 300).spawnObject(HealthPack)
 Floor.getTile(-300, 300).spawnObject(AmmoPack)
 Floor.getTile(300, -300).spawnObject(FoodPack)
+Floor.getTile(-300, -300).spawnObject(Key)
+Floor.getTile(0, 400).spawnObject(Chest)
+Floor.getTile(-500, 0).spawnObject(SaucerVehicle)
 glutMainLoop()
