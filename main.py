@@ -406,7 +406,21 @@ class Gun:
     def updateBullets(cls):
         for bullet in cls.bullets[:]:
             bullet.update()
-            if bullet.life <= 0:
+            
+            # Check collision with enemies
+            hit = False
+            for enemy in EnemyManager.enemies:
+                dx = bullet.x - enemy.x
+                dz = bullet.z - enemy.z
+                dist = math.sqrt(dx*dx + dz*dz)
+                # Collision radius varies by type
+                radius = 70 if isinstance(enemy, Tank) else 40
+                if dist < radius:
+                    enemy.takeDamage(20)
+                    hit = True
+                    break
+            
+            if bullet.life <= 0 or hit:
                 cls.bullets.remove(bullet)
 
     @classmethod
@@ -498,6 +512,328 @@ class AmmoPack:
             return True
         return False
 
+class Enemy:
+    def __init__(self, x, z, health, speed, color):
+        self.x = x
+        self.z = z
+        self.angle = 0
+        self.health = health
+        self.maxHealth = health
+        self.speed = speed
+        self.color = color
+        self.isAlive = True
+        
+        # AI State
+        self.state = "PATROL" # PATROL, CHASE, ATTACK
+        self.detectionRange = 800 # Increased detection range
+        self.attackRange = 60
+        self.patrolTimer = 0
+        self.patrolDir = [random.uniform(-1, 1), random.uniform(-1, 1)]
+
+    def drawHealthBar(self):
+        ratio = self.health / self.maxHealth
+        glPushMatrix()
+        # Move up above head
+        glTranslatef(0, 130, 0) 
+        
+        # 1. Get camera position using the same math as Camera.setupCamera
+        rad = -math.radians(Player.angle) - math.radians(Camera.angle)
+        camX = Player.x + Camera.radius * math.cos(rad)
+        camZ = Player.z + Camera.radius * math.sin(rad)
+        
+        # 2. Angle from enemy to camera
+        dx = camX - self.x
+        dz = camZ - self.z
+        angleToCam = math.degrees(math.atan2(dx, dz))
+        
+        # 3. Rotate to face camera
+        glRotatef(angleToCam, 0, 1, 0)
+        
+        # Background (Black)
+        glColor3f(0.0, 0.0, 0.0)
+        glBegin(GL_QUADS)
+        glVertex3f(-35, -5, 0); glVertex3f(35, -5, 0)
+        glVertex3f(35, 5, 0); glVertex3f(-35, 5, 0)
+        glEnd()
+        
+        # Health (Bright Green)
+        glColor3f(0.0, 1.0, 0.3)
+        glBegin(GL_QUADS)
+        glVertex3f(-35, -5, 0.01); glVertex3f(-35 + (70 * ratio), -5, 0.01)
+        glVertex3f(-35 + (70 * ratio), 5, 0.01); glVertex3f(-35, 5, 0.01)
+        glEnd()
+        glPopMatrix()
+
+    def update(self):
+        dx = Player.x - self.x
+        dz = Player.z - self.z
+        dist = math.sqrt(dx*dx + dz*dz)
+
+        # State Transitions
+        if dist < self.attackRange:
+            self.state = "ATTACK"
+        elif dist < self.detectionRange:
+            self.state = "CHASE"
+        else:
+            self.state = "PATROL"
+
+        if self.state == "PATROL":
+            self.patrolTimer -= 1
+            if self.patrolTimer <= 0:
+                self.patrolDir = [random.uniform(-1, 1), random.uniform(-1, 1)]
+                self.patrolTimer = random.randint(60, 120)
+            
+            self.x += self.patrolDir[0] * (self.speed * 0.5)
+            self.z += self.patrolDir[1] * (self.speed * 0.5)
+            self.angle = math.degrees(math.atan2(self.patrolDir[0], self.patrolDir[1]))
+
+        elif self.state == "CHASE":
+            targetAngle = math.degrees(math.atan2(dx, dz))
+            angleDiff = (targetAngle - self.angle + 180) % 360 - 180
+            self.angle += angleDiff * 0.05
+            rad = math.radians(self.angle)
+            self.x += self.speed * math.sin(rad)
+            self.z += self.speed * math.cos(rad)
+
+        elif self.state == "ATTACK":
+            self.performAttack(dist)
+
+    def performAttack(self, dist):
+        # Default melee damage
+        if Player.immunity <= 0:
+            damagePool = "health" if Player.mode == "human" else "saucer"
+            if damagePool == "health":
+                Player.health -= 0.3
+            else:
+                Player.saucerHealth -= 0.3
+
+    def takeDamage(self, amount):
+        self.health -= amount
+        if self.health <= 0:
+            self.isAlive = False
+            self.dropLoot()
+
+    def dropLoot(self):
+        tile = Floor.getTile(self.x, self.z)
+        if tile and tile.object is None:
+            pickup = random.choice([HealthPack, AmmoPack, FoodPack])
+            tile.spawnObject(pickup)
+
+class Mutant(Enemy):
+    def __init__(self, x, z):
+        super().__init__(x, z, health=50, speed=2.5, color=(0.3, 0.4, 0.2))
+        self.eyeColor = (0.0, 1.0, 0.0)
+
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, 0, self.z)
+        
+        self.drawHealthBar()
+        
+        glRotatef(self.angle, 0, 1, 0)
+        
+        # Mutant Body (Hunched)
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(0, 45, 0)
+        glScalef(50, 70, 40)
+        glutSolidCube(1)
+        glPopMatrix()
+        
+        # Head
+        glPushMatrix()
+        glTranslatef(0, 85, 15)
+        glutSolidSphere(20, 10, 10)
+        glColor3f(*self.eyeColor)
+        glPushMatrix(); glTranslatef(-8, 5, 15); glutSolidSphere(4, 5, 5); glPopMatrix()
+        glPushMatrix(); glTranslatef(8, 5, 15); glutSolidSphere(4, 5, 5); glPopMatrix()
+        glPopMatrix()
+        glPopMatrix()
+
+class Wanderer(Enemy):
+    def __init__(self, x, z):
+        # Squat, slow zombie
+        super().__init__(x, z, health=30, speed=1.5, color=(0.8, 0.5, 0.1))
+
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, 0, self.z)
+        self.drawHealthBar()
+        glRotatef(self.angle, 0, 1, 0)
+        
+        # Wide flat body
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(0, 20, 0)
+        glScalef(60, 40, 40)
+        glutSolidCube(1)
+        glPopMatrix()
+        
+        # Big lopsided head
+        glPushMatrix()
+        glTranslatef(5, 55, 10)
+        glutSolidSphere(25, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+class Tank(Enemy):
+    def __init__(self, x, z):
+        super().__init__(x, z, health=200, speed=0.8, color=(0.3, 0.3, 0.3))
+        self.attackRange = 700
+        self.shootTimer = 0
+
+    def performAttack(self, dist):
+        # Face player
+        dx = Player.x - self.x
+        dz = Player.z - self.z
+        targetAngle = math.degrees(math.atan2(dx, dz))
+        # Slow turret rotation towards player
+        angleDiff = (targetAngle - self.angle + 180) % 360 - 180
+        self.angle += angleDiff * 0.02
+        
+        self.shootTimer -= 1
+        # Only fire if aimed closely at the player (within 5 degrees)
+        if self.shootTimer <= 0 and abs(angleDiff) < 5:
+            # Calculate muzzle position (at the tip of the barrel)
+            rad = math.radians(self.angle)
+            muzzleX = self.x + 80 * math.sin(rad)
+            muzzleZ = self.z + 80 * math.cos(rad)
+            
+            # Tank fires heavy shells (Bright glowing orange/gold)
+            Shooter.bullets.append(EnemyBullet(muzzleX, 70, muzzleZ, self.angle, damage=25, scale=12, color=(1.0, 0.6, 0.0)))
+            self.shootTimer = 150 # Slow fire rate for balance
+
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, 0, self.z)
+        self.drawHealthBar()
+        glRotatef(self.angle, 0, 1, 0)
+        
+        # Heavy Body
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(0, 30, 0)
+        glScalef(100, 60, 100)
+        glutSolidCube(1)
+        glPopMatrix()
+        
+        # Turret
+        glColor3f(0.2, 0.2, 0.2)
+        glPushMatrix()
+        glTranslatef(0, 70, 0)
+        glScalef(60, 40, 60)
+        glutSolidCube(1)
+        glPopMatrix()
+        
+        # Barrel
+        glPushMatrix()
+        glTranslatef(0, 70, 40)
+        glColor3f(0.1, 0.1, 0.1)
+        gluCylinder(gluNewQuadric(), 10, 10, 40, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+class EnemyBullet:
+    def __init__(self, x, y, z, angle, damage=5, scale=5, color=(1.0, 0.2, 0.0)):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.angle = angle
+        self.speed = 10
+        self.life = 100
+        self.damage = damage
+        self.scale = scale
+        self.color = color
+
+    def update(self):
+        rad = math.radians(self.angle)
+        self.x += self.speed * math.sin(rad)
+        self.z += self.speed * math.cos(rad)
+        self.life -= 1
+        
+        # Collision with player
+        dx = self.x - Player.x
+        dz = self.z - Player.z
+        if math.sqrt(dx*dx + dz*dz) < 40 and abs(self.y - 50) < 50:
+            if Player.immunity <= 0:
+                if Player.mode == "human": Player.health -= self.damage
+                else: Player.saucerHealth -= self.damage
+            self.life = 0
+
+    def draw(self):
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        glutSolidSphere(self.scale, 8, 8)
+        glPopMatrix()
+
+class Shooter(Enemy):
+    bullets = []
+    def __init__(self, x, z):
+        super().__init__(x, z, health=40, speed=3.0, color=(0.6, 0.2, 0.2))
+        self.attackRange = 500
+        self.shootTimer = 0
+
+    def performAttack(self, dist):
+        # Rotate to face player
+        dx = Player.x - self.x
+        dz = Player.z - self.z
+        self.angle = math.degrees(math.atan2(dx, dz))
+        
+        self.shootTimer -= 1
+        if self.shootTimer <= 0:
+            self.bullets.append(EnemyBullet(self.x, 60, self.z, self.angle))
+            self.shootTimer = 60
+
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, 0, self.z)
+        self.drawHealthBar()
+        glRotatef(self.angle, 0, 1, 0)
+        
+        # Thin Body
+        glColor3f(*self.color)
+        glPushMatrix(); glTranslatef(0, 50, 0); glScalef(25, 100, 25); glutSolidCube(1); glPopMatrix()
+        # Head
+        glPushMatrix(); glTranslatef(0, 110, 0); glutSolidSphere(15, 10, 10); glPopMatrix()
+        # Weapon
+        glColor3f(0.1, 0.1, 0.1)
+        glPushMatrix(); glTranslatef(0, 60, 20); gluCylinder(gluNewQuadric(), 5, 5, 40, 8, 8); glPopMatrix()
+        
+        glPopMatrix()
+
+class EnemyManager:
+    enemies = []
+    
+    @classmethod
+    def spawnEnemy(cls, x, z, kind="mutant"):
+        if kind == "tank": e = Tank(x, z)
+        elif kind == "shooter": e = Shooter(x, z)
+        elif kind == "wanderer": e = Wanderer(x, z)
+        else: e = Mutant(x, z)
+        cls.enemies.append(e)
+        
+    @classmethod
+    def update(cls):
+        for enemy in cls.enemies[:]:
+            enemy.update()
+            if not enemy.isAlive:
+                cls.enemies.remove(enemy)
+        
+        # Update enemy bullets
+        for b in Shooter.bullets[:]:
+            b.update()
+            if b.life <= 0: Shooter.bullets.remove(b)
+                
+    @classmethod
+    def draw(cls):
+        for enemy in cls.enemies:
+            enemy.draw()
+        for b in Shooter.bullets:
+            b.draw()
+
 class FoodPack:
     def __init__(self, x, z):
         self.x = x
@@ -563,16 +899,16 @@ class SaucerVehicle:
 
 class HUD:
     @staticmethod
-    def draw_text(x, y, text, color=(1, 1, 1)):
+    def drawText(x, y, text, color=(1, 1, 1)):
         glColor3f(*color)
         glRasterPos2f(x, y)
         for char in text:
             glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(char))
 
     @staticmethod
-    def draw_bar(x, y, width, height, progress, bar_color, bg_color=(0.2, 0.2, 0.2)):
+    def drawBar(x, y, width, height, progress, barColor, bgColor=(0.2, 0.2, 0.2)):
         # Background
-        glColor3f(*bg_color)
+        glColor3f(*bgColor)
         glBegin(GL_QUADS)
         glVertex2f(x, y)
         glVertex2f(x + width, y)
@@ -581,7 +917,7 @@ class HUD:
         glEnd()
 
         # Progress
-        glColor3f(*bar_color)
+        glColor3f(*barColor)
         glBegin(GL_QUADS)
         glVertex2f(x, y)
         glVertex2f(x + (width * progress), y)
@@ -604,26 +940,26 @@ class HUD:
         glDisable(GL_DEPTH_TEST)
 
         # Draw Health Bar (Top Left)
-        hp_progress = Player.health / Player.maxHealth
-        cls.draw_bar(20, Window.height - 40, 200, 20, hp_progress, (0.8, 0.1, 0.1))
-        cls.draw_text(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
+        hpProgress = Player.health / Player.maxHealth
+        cls.drawBar(20, Window.height - 40, 200, 20, hpProgress, (0.8, 0.1, 0.1))
+        cls.drawText(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
 
         # Draw Food Bar (Below Health)
-        food_limit = 10 # Example limit for the bar scale
-        food_progress = min(1.0, Player.food / food_limit)
-        cls.draw_bar(20, Window.height - 90, 200, 15, food_progress, (0.1, 0.8, 0.1))
-        cls.draw_text(20, Window.height - 110, f"FOOD: {Player.food}")
+        foodLimit = 10 # Example limit for the bar scale
+        foodProgress = min(1.0, Player.food / foodLimit)
+        cls.drawBar(20, Window.height - 90, 200, 15, foodProgress, (0.1, 0.8, 0.1))
+        cls.drawText(20, Window.height - 110, f"FOOD: {Player.food}")
 
         # Draw Ammo (Top Right)
-        cls.draw_text(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo} / {Gun.maxAmmo}")
+        cls.drawText(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo} / {Gun.maxAmmo}")
 
         # Draw Keys (Below Ammo)
-        cls.draw_text(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
+        cls.drawText(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
 
         # Draw Immunity (If active)
         if Player.immunity > 0:
             seconds = int(Player.immunity / 60) # Assuming ~60fps
-            cls.draw_text(Window.width // 2 - 50, Window.height - 40, f"SHIELD: {seconds}s", (0.2, 0.8, 1.0))
+            cls.drawText(Window.width // 2 - 50, Window.height - 40, f"SHIELD: {seconds}s", (0.2, 0.8, 1.0))
 
         glEnable(GL_DEPTH_TEST)
         
@@ -807,6 +1143,9 @@ def display():
     Gun.updateBullets()
     Gun.drawBullets()
 
+    EnemyManager.update()
+    EnemyManager.draw()
+
     HUD.draw()
     
     glutSwapBuffers()
@@ -830,4 +1169,11 @@ Floor.getTile(300, -300).spawnObject(FoodPack)
 Floor.getTile(-300, -300).spawnObject(Key)
 Floor.getTile(0, 400).spawnObject(Chest)
 Floor.getTile(-500, 0).spawnObject(SaucerVehicle)
+# TEST ENEMIES
+EnemyManager.spawnEnemy(500, 500, "mutant")
+EnemyManager.spawnEnemy(-500, 500, "tank")
+EnemyManager.spawnEnemy(0, 800, "shooter")
+EnemyManager.spawnEnemy(-800, -800, "shooter")
+EnemyManager.spawnEnemy(200, -600, "wanderer")
+
 glutMainLoop()
