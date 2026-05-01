@@ -64,6 +64,15 @@ class Tile:
         glVertex3f(startX, 0, endZ)
         glEnd()
 
+class AcidicTile(Tile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        self.offset = random.uniform(0, 10)
+    
+    def draw(self):
+        pulse = (math.sin(time.time() * 0.5 + self.offset) + 1) / 2
+        self.color = (0, 0.2 + (pulse * 0.8), 0)
+        super().draw()
 class Floor:
     rows = 50
     cols = 50
@@ -83,7 +92,11 @@ class Floor:
         for c in range(cols):
             tileX = currentX + Tile.length/2
             tileZ = currentZ + Tile.width/2
-            row.append(Tile(tileX, tileZ))
+            chance = random.random()
+            if chance < 0.1:
+                tile = AcidicTile(tileX, tileZ)
+            else:
+                tile = Tile(tileX, tileZ)
             currentX += Tile.length
         tiles.append(row)
         currentX = startX
