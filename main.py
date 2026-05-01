@@ -151,13 +151,19 @@ class Player:
     x = 0
     z = 0
     angle = 0
-    walkSpeed = 5
+    walkSpeed = 15
     turnSpeed = 3
     health = 100
     maxHealth = 100
     food = 0
     keys = 0
     immunity = 0
+    
+    # Vehicle system
+    mode = "human" # "human" or "saucer"
+    saucerHealth = 300
+    maxSaucerHealth = 300
+    saucerSpeed = 45
 
     # Tunable render settings
     legColor = (0.08, 0.12, 0.35)
@@ -184,6 +190,13 @@ class Player:
 
     @classmethod
     def draw(cls):
+        if cls.mode == "human":
+            cls.drawHuman()
+        else:
+            cls.drawSaucer()
+
+    @classmethod
+    def drawHuman(cls):
         glPushMatrix()
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
@@ -257,18 +270,63 @@ class Player:
 
         glPopMatrix()
 
+    @classmethod
+    def drawSaucer(cls):
+        glPushMatrix()
+        # Hover effect
+        hoverY = 40 + math.sin(time.time() * 3) * 15
+        glTranslatef(cls.x, hoverY, cls.z)
+        glRotatef(cls.angle, 0, 1, 0)
+
+        # Main Body
+        glColor3f(0.5, 0.5, 0.5) # Silver
+        glPushMatrix()
+        glScalef(3.0, 0.6, 3.0)
+        glutSolidSphere(40, 20, 20)
+        glPopMatrix()
+
+        # Cockpit Dome (More protruding)
+        glColor3f(0.0, 0.8, 1.0) # Cyan
+        glPushMatrix()
+        glTranslatef(0, 18, 0) # Higher up
+        glScalef(1.0, 1.3, 1.0) # Taller dome
+        glutSolidSphere(25, 20, 20)
+        glPopMatrix()
+
+        # Lights
+        for i in range(8):
+            angle = i * (360/8)
+            rad = math.radians(angle)
+            lx = 100 * math.cos(rad)
+            lz = 100 * math.sin(rad)
+            glPushMatrix()
+            glTranslatef(lx, -5, lz)
+            glColor3f(1.0, 1.0, 0.0) # Yellow lights
+            glutSolidSphere(5, 10, 10)
+            glPopMatrix()
+        # Navigation Light (Direction indicator - Front)
+        glPushMatrix()
+        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glColor3f(1.0, 0.5, 0.0) # Bright orange
+        glutSolidSphere(10, 10, 10)
+        glPopMatrix()
+
+        glPopMatrix()
+
 
     @classmethod
     def moveForward(cls):
+        speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x + cls.walkSpeed * math.sin(rad)
-        cls.z = cls.z + cls.walkSpeed * math.cos(rad)
+        cls.x = cls.x + speed * math.sin(rad)
+        cls.z = cls.z + speed * math.cos(rad)
 
     @classmethod
     def moveBackward(cls):
+        speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x - cls.walkSpeed * math.sin(rad)
-        cls.z = cls.z - cls.walkSpeed * math.cos(rad)
+        cls.x = cls.x - speed * math.sin(rad)
+        cls.z = cls.z - speed * math.cos(rad)
 
     @classmethod
     def turnLeft(cls):
@@ -458,6 +516,49 @@ class FoodPack:
 
     def apply(self, player):
         player.addFood(1)
+        return True
+
+class SaucerVehicle:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+    
+    def draw(self):
+        glPushMatrix()
+        # Hover effect for pickup
+        hoverY = self.y + math.sin(time.time() * 2) * 10
+        glTranslatef(self.x, hoverY, self.z)
+        
+        # Scale down for pickup
+        glScalef(0.4, 0.4, 0.4)
+        
+        # Body
+        glColor3f(0.6, 0.6, 0.6)
+        glPushMatrix()
+        glScalef(3.0, 0.6, 3.0)
+        glutSolidSphere(40, 15, 15)
+        glPopMatrix()
+        
+        # Dome (More protruding)
+        glColor3f(0.0, 0.8, 1.0)
+        glPushMatrix()
+        glTranslatef(0, 15, 0)
+        glScalef(1.0, 1.3, 1.0)
+        glutSolidSphere(20, 15, 15)
+        glPopMatrix()
+
+        # Front Indicator (For pickup)
+        glPushMatrix()
+        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glColor3f(1.0, 0.5, 0.0)
+        glutSolidSphere(10, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.mode = "saucer"
         return True
 
 class HUD:
@@ -728,4 +829,5 @@ Floor.getTile(-300, 300).spawnObject(AmmoPack)
 Floor.getTile(300, -300).spawnObject(FoodPack)
 Floor.getTile(-300, -300).spawnObject(Key)
 Floor.getTile(0, 400).spawnObject(Chest)
+Floor.getTile(-500, 0).spawnObject(SaucerVehicle)
 glutMainLoop()
