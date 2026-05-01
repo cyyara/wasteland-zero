@@ -43,7 +43,7 @@ class Camera:
 
 class Window:
     width = 1000
-    height = 800
+    height = 700
 
 class Tile:
     length = width = 150
@@ -390,8 +390,10 @@ class HealthPack:
         glPopMatrix()
 
     def apply(self, player):
-        player.heal(30)
-        return True
+        if player.health < player.maxHealth:
+            player.heal(30)
+            return True
+        return False
 
 class AmmoPack:
     def __init__(self, x, z):
@@ -433,8 +435,10 @@ class AmmoPack:
         glPopMatrix()
 
     def apply(self, player):
-        Gun.addAmmo(10)
-        return True
+        if Gun.currentAmmo < Gun.maxAmmo:
+            Gun.addAmmo(10)
+            return True
+        return False
 
 class FoodPack:
     def __init__(self, x, z):
@@ -455,6 +459,78 @@ class FoodPack:
     def apply(self, player):
         player.addFood(1)
         return True
+
+class HUD:
+    @staticmethod
+    def draw_text(x, y, text, color=(1, 1, 1)):
+        glColor3f(*color)
+        glRasterPos2f(x, y)
+        for char in text:
+            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(char))
+
+    @staticmethod
+    def draw_bar(x, y, width, height, progress, bar_color, bg_color=(0.2, 0.2, 0.2)):
+        # Background
+        glColor3f(*bg_color)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y)
+        glVertex2f(x + width, y)
+        glVertex2f(x + width, y + height)
+        glVertex2f(x, y + height)
+        glEnd()
+
+        # Progress
+        glColor3f(*bar_color)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y)
+        glVertex2f(x + (width * progress), y)
+        glVertex2f(x + (width * progress), y + height)
+        glVertex2f(x, y + height)
+        glEnd()
+
+    @classmethod
+    def draw(cls):
+        # Switch to 2D
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, Window.width, 0, Window.height)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        glDisable(GL_DEPTH_TEST)
+
+        # Draw Health Bar (Top Left)
+        hp_progress = Player.health / Player.maxHealth
+        cls.draw_bar(20, Window.height - 40, 200, 20, hp_progress, (0.8, 0.1, 0.1))
+        cls.draw_text(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
+
+        # Draw Food Bar (Below Health)
+        food_limit = 10 # Example limit for the bar scale
+        food_progress = min(1.0, Player.food / food_limit)
+        cls.draw_bar(20, Window.height - 90, 200, 15, food_progress, (0.1, 0.8, 0.1))
+        cls.draw_text(20, Window.height - 110, f"FOOD: {Player.food}")
+
+        # Draw Ammo (Top Right)
+        cls.draw_text(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo} / {Gun.maxAmmo}")
+
+        # Draw Keys (Below Ammo)
+        cls.draw_text(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
+
+        # Draw Immunity (If active)
+        if Player.immunity > 0:
+            seconds = int(Player.immunity / 60) # Assuming ~60fps
+            cls.draw_text(Window.width // 2 - 50, Window.height - 40, f"SHIELD: {seconds}s", (0.2, 0.8, 1.0))
+
+        glEnable(GL_DEPTH_TEST)
+        
+        # Switch back to 3D
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
 
 class Key:
     def __init__(self, x, z):
@@ -617,7 +693,10 @@ def display():
     Camera.setupCamera()
     Floor.draw()
     Player.draw()
-    
+
+    # Update survival logic
+    if Player.immunity > 0:
+        Player.immunity -= 1
     # Pickup collection logic
     currentTile = Floor.getTile(Player.x, Player.z)
     if currentTile and currentTile.object:
@@ -626,6 +705,9 @@ def display():
 
     Gun.updateBullets()
     Gun.drawBullets()
+
+    HUD.draw()
+    
     glutSwapBuffers()
 
 
