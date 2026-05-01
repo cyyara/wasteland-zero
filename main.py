@@ -119,23 +119,49 @@ class Floor:
 class Player:
     headRadius = 25
     bodyWidth = 65
+    bodyThickness = 35
     bodyHeight = 90
     handLength = 60
-    handBaseRadius = 15
+    handBaseRadius = 10
     handTopRadius = 5
     legHeight = 50
     legBottomWidth = 40
     legBaseWidth = 25
 
-    gunBaseRadius = 10
+    gunBaseRadius = 5
     gunTopRadius = 5
-    gunLength = 40
+    gunLength = 50
+    gunHandleWidth = 8
+    gunHandleHeight = 24
+    gunHandleThickness = 10
 
     x = 0
     z = 0
     angle = 0
     walkSpeed = 5
     turnSpeed = 3
+
+    # Tunable render settings
+    legColor = (0.08, 0.12, 0.35)
+    bodyColor = (0.50, 0.10, 0.18)
+    handColor = (0.8, 0.5, 0.25)
+    headColor = (0.0, 0.0, 0.0)
+    gunColor = (0.35, 0.35, 0.35)
+    gunHandleColor = (0.2, 0.2, 0.2)
+
+    legXOffsetFactor = 0.25
+    handYDivisor = 1.4
+    gunXOffset = -20
+    gunYDivisor = 1.2
+    gunZOffsetFactor = 0.5
+    gunHandleXOffset = 0
+    gunHandleYOffset = -12
+    gunHandleZOffset = 10
+
+    cylinderSlices = 10
+    cylinderStacks = 10
+    headSlices = 20
+    headStacks = 20
 
 
     @classmethod
