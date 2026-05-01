@@ -39,6 +39,7 @@ class Window:
 
 class Tile:
     length = width = 150
+    
     def __init__(self, x, z):
         self.x = x
         self.z = z
@@ -68,7 +69,7 @@ class Tile:
     def spawnObject(self, spawnable):
         self.object = spawnable(self.x, self.z)
 
-class AcidicTile(Tile):
+class AcidTile(Tile):
     def __init__(self, x, z):
         super().__init__(x, z)
         self.offset = random.uniform(0, 10)
@@ -87,7 +88,7 @@ class WaterTile(Tile):
         self.color = (0, 0, 1)
         super().draw()
 
-class SafeTile(Tile):
+class PortalTile(Tile):
     def __init__(self, x, z):
         super().__init__(x, z)
         self.color = (1.0, 1.0, 0.0) 
@@ -104,133 +105,68 @@ class HomeTile(Tile):
         self.color = (0.9, 0.85, 0.4)
         super().draw()
 
-class HomeBase:
-    rows = cols = 5
-    offsetX = 200
-    offsetZ = 500
+#  class HomeBase:
+#     rows = cols = 5
+#     offsetX = 200
+#     offsetZ = 500
 
-    homeDuration = 10
-    cooldownPeriod = 10
+#     homeDuration = 10
+#     cooldownPeriod = 10
 
-    enterTime = None
-    cooldownStart = None
+#     enterTime = None
+#     cooldownStart = None
 
-    tiles = []
-    for r in range(rows):
-        row = []
-        for c in range(cols):
-            tileX = offsetX + (c - cols // 2) * Tile.length + Tile.length / 2
-            tileZ = offsetZ + r * Tile.width + Tile.width / 2
-            row.append(HomeTile(tileX, tileZ))
-        tiles.append(row)
+#     tiles = []
+#     for r in range(rows):
+#         row = []
+#         for c in range(cols):
+#             tileX = offsetX + (c - cols // 2) * Tile.length + Tile.length / 2
+#             tileZ = offsetZ + r * Tile.width + Tile.width / 2
+#             row.append(HomeTile(tileX, tileZ))
+#         tiles.append(row)
 
-    @classmethod
-    def onCooldown(cls):
-        if cls.cooldownStart is None:
-            return False
-        return time.time() - cls.cooldownStart < cls.cooldownPeriod
+#     @classmethod
+#     def onCooldown(cls):
+#         if cls.cooldownStart is None:
+#             return False
+#         return time.time() - cls.cooldownStart < cls.cooldownPeriod
 
-    @classmethod
-    def checkEntry(cls):
-        sr, sc = Floor.safeTilePosition
-        safeTile = Floor.tiles[sr][sc]
-        dist = math.sqrt((Player.x - safeTile.x) ** 2 + (Player.z - safeTile.z) ** 2)
-        if dist < Tile.length / 2 and not cls.onCooldown():
-            if not GameState.inHomebase:
-                GameState.inHomebase = True
-                cls.enterTime = time.time()
+#     @classmethod
+#     def checkEntry(cls):
+#         sr, sc = Floor.safeTilePosition
+#         safeTile = Floor.tiles[sr][sc]
+#         dist = math.sqrt((Player.x - safeTile.x) ** 2 + (Player.z - safeTile.z) ** 2)
+#         if dist < Tile.length / 2 and not cls.onCooldown():
+#             if not GameState.inHomebase:
+#                 GameState.inHomebase = True
+#                 cls.enterTime = time.time()
 
-        if GameState.inHomebase:
-            Player.x = cls.offsetX
-            Player.z = cls.offsetZ + (cls.rows * Tile.width) / 2
+#         if GameState.inHomebase:
+#             Player.x = cls.offsetX
+#             Player.z = cls.offsetZ + (cls.rows * Tile.width) / 2
 
-    @classmethod
-    def update(cls):
-        if GameState.inHomebase:
-            elapsed = time.time() - cls.enterTime
-            if elapsed >= cls.homeDuration:
-                GameState.inHomebase = False
-                cls.enterTime = None
-                cls.cooldownStart = time.time()
-                sr, sc = Floor.safeTilePosition
-                safeTile = Floor.tiles[sr][sc]
-                Player.x = safeTile.x
-                Player.z = safeTile.z + Tile.width
+#     @classmethod
+#     def update(cls):
+#         if GameState.inHomebase:
+#             elapsed = time.time() - cls.enterTime
+#             if elapsed >= cls.homeDuration:
+#                 GameState.inHomebase = False
+#                 cls.enterTime = None
+#                 cls.cooldownStart = time.time()
+#                 sr, sc = Floor.safeTilePosition
+#                 safeTile = Floor.tiles[sr][sc]
+#                 Player.x = safeTile.x
+#                 Player.z = safeTile.z + Tile.width
 
-    @classmethod
-    def draw(cls):
-        if GameState.inHomebase:
-            for row in cls.tiles:
-                for tile in row:
-                    tile.draw()
+#     @classmethod
+#     def draw(cls):
+#         if GameState.inHomebase:
+#             for row in cls.tiles:
+#                 for tile in row:
+#                     tile.draw()
 
-class Floor:
-    rows = 50
-    cols = 50
 
-    length = rows * Tile.length
-    width = cols * Tile.width
 
-    x = 0
-    z = 0
-
-    startX = x - length / 2
-    startZ = z - length / 2
-
-    
-    tiles = []
-    currentX = startX
-    currentZ = startZ
-
-    for r in range(rows):
-        row = []
-        for c in range(cols):
-            tileX = currentX + Tile.length/2
-            tileZ = currentZ + Tile.width/2
-            tile = Tile(tileX, tileZ)
-            row.append(tile)
-            currentX += Tile.length
-        tiles.append(row)
-        currentX = startX
-        currentZ += Tile.width
-
-    allPositions = []
-    for r in range(rows):
-        for c in range(cols):
-            allPositions.append((r, c))
-
-    waterPositions = random.sample(allPositions, random.randint(3, 5))
-
-    acidPool = []
-    for p in allPositions:
-        if p not in waterPositions:
-            acidPool.append(p)
-    acidPositions = random.sample(acidPool, int(rows * cols * 0.1))
-
-    safeTilePosition = random.choice(allPositions)
-
-    for (r, c) in waterPositions:
-        tiles[r][c] = WaterTile(tiles[r][c].x, tiles[r][c].z)
-
-    for (r, c) in acidPositions:
-        tiles[r][c] = AcidicTile(tiles[r][c].x, tiles[r][c].z)
-    
-    sr, sc = safeTilePosition
-    tiles[sr][sc] = SafeTile(tiles[sr][sc].x, tiles[sr][sc].z)
-    
-    @classmethod
-    def draw(cls):
-        for r in range(cls.rows):
-            for c in range(cls.cols):
-                cls.tiles[r][c].draw()
-
-    @classmethod
-    def getTile(cls, x, z):
-        col = int((x - cls.startX) / Tile.length)
-        row = int((z - cls.startZ) / Tile.width)
-        if 0 <= row < cls.rows and 0 <= col < cls.cols:
-            return cls.tiles[row][col]
-        return None
 
 class Player:
     headRadius = 25
@@ -957,7 +893,7 @@ class FoodPack:
         player.addFood(1)
         return True
 
-class SaucerVehicle:
+class Spaceship:
     def __init__(self, x, z):
         self.x = x
         self.z = z
@@ -1150,11 +1086,98 @@ class Chest:
             return True
         return False
 
-class Game:
-    isImplemented = False
-
 class GameState:
     inHomebase = False
+
+class Tileset:
+    def __init__(self, rows, columns, tile):
+        self.tiles = []
+        self.positions = [(r, c) for r in range(rows) for c in range(columns)]
+
+        floorLength = rows * Tile.length
+        floorWidth = columns * Tile.width
+
+        originX = 0
+        originZ = 0
+
+        self.startX = originX - floorLength / 2
+        self.startZ = originZ - floorWidth / 2
+
+        currentX = self.startX
+        currentZ = self.startZ
+
+        for r in range(rows):
+            row = []
+            for c in range(columns):
+                tileX = currentX + Tile.length/2
+                tileZ = currentZ + Tile.width/2
+                t = tile(tileX, tileZ)
+                row.append(t)
+                currentX += Tile.length
+            self.tiles.append(row)
+            currentX = self.startX
+            currentZ += Tile.width
+
+    def getTile(self, x, z):
+        col = int((x - self.startX) / Tile.length)
+        row = int((z - self.startZ) / Tile.width)
+
+        if 0 <= row < len(self.tiles) and 0 <= col < len(self.tiles[0]):
+            return self.tiles[row][col]
+        return None
+
+    def popRandomPosition(self):
+        randomIndex = random.randrange(len(self.positions))
+        return self.positions.pop(randomIndex)
+    
+    def changeTile(self, r, c, newTile):
+        oldTile = self.tiles[r][c]
+        self.tiles[r][c] = newTile(oldTile.x, oldTile.z)
+    
+
+    def draw(self):
+        for row in self.tiles:
+            for tile in row:
+                tile.draw()
+
+class Wasteland(Tileset):
+    def __init__(self, rows, columns):
+        super().__init__(rows, columns, tile=Tile)
+
+        self.acidPositions = []
+        self.waterPositions = []
+        
+        acidTileCount = int(rows * columns * 0.1)
+        for t in range(acidTileCount):
+            self.acidPositions.append(self.popRandomPosition())
+
+        waterTileCount = random.randint(5, 10)
+        for t in range(waterTileCount):
+            self.waterPositions.append(self.popRandomPosition())
+
+        self.portalPosition = self.popRandomPosition()
+        self.spaceshipPosition = self.popRandomPosition()
+        self.chestPosition = self.popRandomPosition()
+
+        for r, c in self.waterPositions: self.changeTile(r, c, WaterTile)
+        for r, c in self.acidPositions: self.changeTile(r, c, AcidTile)
+
+        self.changeTile(*self.portalPosition, PortalTile)
+        self.changeTile(*self.spaceshipPosition, Spaceship)
+        self.changeTile(*self.chestPosition, Chest)
+
+class Floor:
+    homebase = Tileset(6, 6, HomeTile)
+    wasteland = Wasteland(50, 50)
+    current = wasteland
+    
+    @classmethod
+    def draw(cls): 
+        cls.current.draw()
+
+    @classmethod
+    def getTile(cls, x, z):
+        return cls.current.getTile(x, z)
 
 class Sky:
     dayColor = numpy.array([0.72, 0.68, 0.38])
@@ -1233,23 +1256,23 @@ def display():
     glLoadIdentity()  # Reset modelview matrix
     glViewport(0, 0, Window.width, Window.height)
 
-    HomeBase.update()
-    HomeBase.checkEntry()
+    # HomeBase.update()
+    # HomeBase.checkEntry()
 
     Camera.setupCamera()
     if not GameState.inHomebase:
         Floor.draw()
-    HomeBase.draw()
+    # HomeBase.draw()
     Player.draw()
 
     # Update survival logic
     if Player.immunity > 0:
         Player.immunity -= 1
     # Pickup collection logic
-    currentTile = Floor.getTile(Player.x, Player.z)
-    if currentTile and currentTile.object:
-        if currentTile.object.apply(Player):
-            currentTile.object = None
+    # currentTile = Floor.getTile(Player.x, Player.z)
+    # if currentTile and currentTile.object:
+    #     if currentTile.object.apply(Player):
+    #         currentTile.object = None
 
     Gun.updateBullets()
     Gun.drawBullets()
@@ -1274,17 +1297,15 @@ glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
 # TEST SP AWNS - DELETE LATER
-Floor.getTile(300, 300).spawnObject(HealthPack)
-Floor.getTile(-300, 300).spawnObject(AmmoPack)
-Floor.getTile(300, -300).spawnObject(FoodPack)
-Floor.getTile(-300, -300).spawnObject(Key)
-Floor.getTile(0, 400).spawnObject(Chest)
-Floor.getTile(-500, 0).spawnObject(SaucerVehicle)
+# Floor.getTile(300, 300).spawnObject(HealthPack)
+# Floor.getTile(-300, 300).spawnObject(AmmoPack)
+# Floor.getTile(300, -300).spawnObject(FoodPack)
+# Floor.getTile(-300, -300).spawnObject(Key)
 # TEST ENEMIES
-EnemyManager.spawnEnemy(500, 500, "mutant")
-EnemyManager.spawnEnemy(-500, 500, "tank")
-EnemyManager.spawnEnemy(0, 800, "shooter")
-EnemyManager.spawnEnemy(-800, -800, "shooter")
-EnemyManager.spawnEnemy(200, -600, "wanderer")
+# EnemyManager.spawnEnemy(500, 500, "mutant")
+# EnemyManager.spawnEnemy(-500, 500, "tank")
+# EnemyManager.spawnEnemy(0, 800, "shooter")
+# EnemyManager.spawnEnemy(-800, -800, "shooter")
+# EnemyManager.spawnEnemy(200, -600, "wanderer")
 
 glutMainLoop()
