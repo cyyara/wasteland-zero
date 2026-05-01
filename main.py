@@ -371,6 +371,9 @@ def keyboardListener(key, x, y):
     if key == b'-':
         Camera.radius -= 5
 
+    if key == b' ':
+        Gun.shoot()
+
 def specialKeyListener(key, x, y):
     if key == GLUT_KEY_LEFT:
         Camera.angle -= 1
@@ -399,6 +402,8 @@ def display():
     Camera.setupCamera()
     Floor.draw()
     Player.draw()
+    Gun.updateBullets()
+    Gun.drawBullets()
     glutSwapBuffers()
 
 
