@@ -12,8 +12,8 @@ from OpenGL.GLUT import *
 import math
 import random
 import time
-import numpy      
-
+import numpy 
+ 
 class Camera:
     angle = 90
     height = 500
@@ -50,7 +50,12 @@ class Tile:
     def __init__(self, x, z):
         self.x = x
         self.z = z
-        self.color = (random.random(), random.random(), random.random())
+        base = random.uniform(0.30, 0.45)
+        r = base + random.uniform(0.03, 0.08)
+        g = base + random.uniform(-0.01, 0.03)
+        b = base + random.uniform(-0.04, 0.01)
+        # self.color = (random.random(), random.random(), random.random())
+        self.color = (r, g, b)
     def draw(self):
         startX = self.x - self.length/2
         endX = startX + self.length
@@ -73,6 +78,7 @@ class AcidicTile(Tile):
         pulse = (math.sin(time.time() * 0.5 + self.offset) + 1) / 2
         self.color = (0, 0.2 + (pulse * 0.8), 0)
         super().draw()
+
 class Floor:
     rows = 50
     cols = 50
@@ -97,10 +103,12 @@ class Floor:
                 tile = AcidicTile(tileX, tileZ)
             else:
                 tile = Tile(tileX, tileZ)
+            row.append(tile)
             currentX += Tile.length
         tiles.append(row)
         currentX = startX
         currentZ += Tile.width
+
     @classmethod
     def draw(cls):
         for r in range(cls.rows):
@@ -136,7 +144,8 @@ class Player:
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
 
-        glColor3f(0.33, 0.42, 0.188)
+        # Right leg
+        glColor3f(0.08, 0.12, 0.35)
         glPushMatrix()
         glTranslatef(-cls.bodyWidth/4, 0, 0)
         glRotatef(-90, 1, 0, 0)
@@ -144,7 +153,7 @@ class Player:
         glPopMatrix()
 
         # Left leg
-        glColor3f(0.33, 0.42, 0.188)
+        glColor3f(0.08, 0.12, 0.35)
         glPushMatrix()
         glTranslatef(cls.bodyWidth/4, 0, 0)
         glRotatef(-90, 1, 0, 0)
@@ -153,7 +162,7 @@ class Player:
 
 
         # Body
-        glColor3f(1, 0.71, 0.76)
+        glColor3f(0.50, 0.10, 0.18)
         glPushMatrix()
         glTranslatef(0, cls.legHeight + cls.bodyHeight / 2, 0)
         glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyWidth)
@@ -216,8 +225,8 @@ class Game:
     isImplemented = False
 
 class Sky:
-    dayColor = numpy.array([0.306, 0.871, 0.149])
-    nightColor = numpy.array([0.431, 0.169, 0.325])
+    dayColor = numpy.array([0.72, 0.68, 0.38])
+    nightColor = numpy.array([0.01, 0.00, 0.03])
     phaseDuration = 30
     startTime = time.time()
 
@@ -293,6 +302,7 @@ def display():
     Floor.draw()
     Player.draw()
     glutSwapBuffers()
+
 
 glutInit()
 glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH) 
