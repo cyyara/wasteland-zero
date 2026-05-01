@@ -12,52 +12,34 @@ from OpenGL.GLUT import *
 import math
 import random
 import time
-import numpy 
+import numpy      
 
 class Camera:
-    angle = 0
+    angle = 90
     height = 500
     radius = 700
-    fovY = 120
-
-    playerPOV = False
+    fovY = 70
 
     @classmethod
     def setupCamera(cls):
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
-        if cls.playerPOV:
-            gluPerspective(90, Window.width / Window.height, 10, 5000)
-        else:
-            gluPerspective(cls.fovY, Window.width / Window.height, 10, 2000) 
-            
+        gluPerspective(cls.fovY, Window.width / Window.height, 10, 5000) 
              
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-        if cls.playerPOV:
-            rad = math.radians(Player.angle)
-            eyeX = Player.x
-            eyeY = Player.legHeight + Player.bodyHeight + Player.headRadius * 0.8
-            eyeZ = Player.z
+        rad = -math.radians(Player.angle) - math.radians(cls.angle)
+        camX = Player.x + cls.radius * math.cos(rad)
+        camY = cls.height
+        camZ = Player.z + cls.radius * math.sin(rad)
 
-            targetX = eyeX + math.sin(rad) * 1000
-            targetY = eyeY
-            targetZ = eyeZ + math.cos(rad) * 1000
-                    
-            gluLookAt(eyeX, eyeY, eyeZ,
-                        targetX, targetY, targetZ,
-                        0, 1, 0)        
-        else:
-            rad = math.radians(cls.angle)
-            camX = cls.radius * math.cos(rad)
-            camY = cls.height
-            camZ = cls.radius * math.sin(rad)
+        focusY = Player.legHeight + Player.bodyHeight + Player.headRadius
 
-            gluLookAt(camX, camY, camZ,
-                    0, 0, 0,
-                    0, 1, 0)
-            
+        gluLookAt(camX, camY, camZ,
+                  Player.x, focusY, Player.z,
+                  0, 1, 0)
+        
 
 class Window:
     width = 1000
@@ -140,34 +122,6 @@ class Player:
         glPushMatrix()
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
-
-        if Camera.playerPOV:
-            glColor3f(0.85, 0.85, 0.85)
-            glPushMatrix()
-            glTranslatef(0, cls.legHeight + (cls.bodyHeight / 1.3), 20)
-            glRotatef(-10, 1, 0, 0)
-            gluCylinder(gluNewQuadric(),
-                        cls.gunBaseRadius,
-                        cls.gunTopRadius,
-                        cls.gunLength,
-                        10, 10)
-            
-            # Hands attached to gun
-            glColor3f(0.8, 0.5, 0.25)
-
-            glPushMatrix()
-            glTranslatef(15, -5, 0)
-            gluCylinder(gluNewQuadric(), 5, 3, 30, 10, 10)
-            glPopMatrix()
-
-            glPushMatrix()
-            glTranslatef(-15, -5, 0)
-            gluCylinder(gluNewQuadric(), 5, 3, 30, 10, 10)
-            glPopMatrix()
-
-            glPopMatrix()
-            glPopMatrix()
-            return
 
         glColor3f(0.33, 0.42, 0.188)
         glPushMatrix()
@@ -290,6 +244,12 @@ def keyboardListener(key, x, y):
 
     if key == b'd':
         Player.turnRight()
+
+    if key == b'=':
+        Camera.radius += 5
+
+    if key == b'-':
+        Camera.radius -= 5
 
 def specialKeyListener(key, x, y):
     if key == GLUT_KEY_LEFT:
