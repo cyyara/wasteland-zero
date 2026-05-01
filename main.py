@@ -50,12 +50,13 @@ class Tile:
     def __init__(self, x, z):
         self.x = x
         self.z = z
+        self.object = None
         base = random.uniform(0.30, 0.45)
         r = base + random.uniform(0.03, 0.08)
         g = base + random.uniform(-0.01, 0.03)
         b = base + random.uniform(-0.04, 0.01)
-        # self.color = (random.random(), random.random(), random.random())
         self.color = (r, g, b)
+
     def draw(self):
         startX = self.x - self.length/2
         endX = startX + self.length
@@ -68,6 +69,12 @@ class Tile:
         glVertex3f(endX, 0, endZ)
         glVertex3f(startX, 0, endZ)
         glEnd()
+
+        if self.object:
+            self.object.draw()
+
+    def spawnObject(self, spawnable):
+        self.object = spawnable(self.x, self.z)
 
 class AcidicTile(Tile):
     def __init__(self, x, z):
@@ -114,28 +121,63 @@ class Floor:
         for r in range(cls.rows):
             for c in range(cls.cols):
                 cls.tiles[r][c].draw()
-                
+    @classmethod
+    def getTile(cls, x, z):
+        col = int((x - cls.startX) / Tile.length)
+        row = int((z - cls.startZ) / Tile.width)
+        if 0 <= row < cls.rows and 0 <= col < cls.cols:
+            return cls.tiles[row][col]
+        return None
 
 class Player:
     headRadius = 25
     bodyWidth = 65
+    bodyThickness = 35
     bodyHeight = 90
     handLength = 60
-    handBaseRadius = 15
+    handBaseRadius = 10
     handTopRadius = 5
     legHeight = 50
     legBottomWidth = 40
     legBaseWidth = 25
 
-    gunBaseRadius = 10
+    gunBaseRadius = 5
     gunTopRadius = 5
-    gunLength = 40
+    gunLength = 50
+    gunHandleWidth = 8
+    gunHandleHeight = 24
+    gunHandleThickness = 10
 
     x = 0
     z = 0
     angle = 0
     walkSpeed = 5
     turnSpeed = 3
+    health = 100
+    maxHealth = 100
+    food = 0
+
+    # Tunable render settings
+    legColor = (0.08, 0.12, 0.35)
+    bodyColor = (0.50, 0.10, 0.18)
+    handColor = (0.8, 0.5, 0.25)
+    headColor = (0.0, 0.0, 0.0)
+    gunColor = (0.35, 0.35, 0.35)
+    gunHandleColor = (0.2, 0.2, 0.2)
+
+    legXOffsetFactor = 0.25
+    handYDivisor = 1.4
+    gunXOffset = -20
+    gunYDivisor = 1.2
+    gunZOffsetFactor = 0.5
+    gunHandleXOffset = 0
+    gunHandleYOffset = -12
+    gunHandleZOffset = 10
+
+    cylinderSlices = 10
+    cylinderStacks = 10
+    headSlices = 20
+    headStacks = 20
 
 
     @classmethod
@@ -144,57 +186,71 @@ class Player:
         glTranslatef(cls.x, 0, cls.z)
         glRotatef(cls.angle, 0, 1, 0) 
 
+        legXOffset = cls.bodyWidth * cls.legXOffsetFactor
+        handY = cls.legHeight + (cls.bodyHeight / cls.handYDivisor)
+        gunY = cls.legHeight + (cls.bodyHeight / cls.gunYDivisor)
+        gunZ = cls.bodyWidth * cls.gunZOffsetFactor
+
         # Right leg
-        glColor3f(0.08, 0.12, 0.35)
+        glColor3f(*cls.legColor)
         glPushMatrix()
-        glTranslatef(-cls.bodyWidth/4, 0, 0)
+        glTranslatef(-legXOffset, 0, 0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, 10, 10)
+        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Left leg
-        glColor3f(0.08, 0.12, 0.35)
+        glColor3f(*cls.legColor)
         glPushMatrix()
-        glTranslatef(cls.bodyWidth/4, 0, 0)
+        glTranslatef(legXOffset, 0, 0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, 10, 10)
+        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
 
         # Body
-        glColor3f(0.50, 0.10, 0.18)
+        glColor3f(*cls.bodyColor)
         glPushMatrix()
         glTranslatef(0, cls.legHeight + cls.bodyHeight / 2, 0)
-        glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyWidth)
+        glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyThickness)
         glutSolidCube(1)
         glPopMatrix()
 
         # Right hand
-        glColor3f(0.8, 0.5, 0.25)
+        glColor3f(*cls.handColor)
         glPushMatrix()
-        glTranslatef(cls.bodyWidth/2 - cls.handBaseRadius, cls.legHeight + (cls.bodyHeight/1.4), 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, 10, 10)
+        glTranslatef(cls.bodyWidth/2 - cls.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Left hand
-        glColor3f(0.8, 0.5, 0.25)
+        glColor3f(*cls.handColor)
         glPushMatrix()
-        glTranslatef(-cls.bodyWidth/2 + cls.handBaseRadius, cls.legHeight + (cls.bodyHeight/1.4), 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, 10, 10)
+        glTranslatef(-cls.bodyWidth/2 + cls.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
         glPopMatrix()
 
         # Head
-        glColor3f(0, 0, 0)
+        glColor3f(*cls.headColor)
         glPushMatrix()
         glTranslatef(0, cls.legHeight + cls.bodyHeight + cls.headRadius, 0)
-        glutSolidSphere(cls.headRadius, 20, 20)
+        glutSolidSphere(cls.headRadius, cls.headSlices, cls.headStacks)
         glPopMatrix()
 
         # Gun
-        glColor3f(0.85, 0.85, 0.85)
+        glColor3f(*cls.gunColor)
         glPushMatrix()
-        glTranslatef(10, cls.legHeight + (cls.bodyHeight/1.2), cls.bodyWidth/2)
-        gluCylinder(gluNewQuadric(), cls.gunBaseRadius, cls.gunTopRadius, cls.gunLength, 10, 10)
+        glTranslatef(cls.gunXOffset, gunY, gunZ)
+        gluCylinder(gluNewQuadric(), cls.gunBaseRadius, cls.gunTopRadius, cls.gunLength, cls.cylinderSlices, cls.cylinderStacks)
+
+        # Gun handle
+        glColor3f(*cls.gunHandleColor)
+        glPushMatrix()
+        glTranslatef(cls.gunHandleXOffset, cls.gunHandleYOffset, cls.gunHandleZOffset)
+        glScalef(cls.gunHandleWidth, cls.gunHandleHeight, cls.gunHandleThickness)
+        glutSolidCube(1)
+        glPopMatrix()
+
         glPopMatrix()
 
         glPopMatrix()
@@ -219,7 +275,170 @@ class Player:
     @classmethod
     def turnRight(cls):
         cls.angle -= cls.turnSpeed
+
+    @classmethod
+    def heal(cls, amount):
+        cls.health = min(cls.maxHealth, cls.health + amount)
+
+    @classmethod
+    def addFood(cls, amount):
+        cls.food += amount
    
+
+class Bullet:
+    def __init__(self, x, y, z, angle):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.angle = angle
+        self.speed = 15
+        self.radius = 4
+        self.life = 100 
+        self.color = (1.0, 0.9, 0.2)
+
+    def update(self):
+        rad = math.radians(self.angle)
+        self.x += self.speed * math.sin(rad)
+        self.z += self.speed * math.cos(rad)
+        self.life -= 1
+
+    def draw(self):
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        glutSolidSphere(self.radius, 10, 10)
+        glPopMatrix()
+
+class Gun:
+    bullets = []
+    maxAmmo = 30
+    currentAmmo = 30
+
+    @classmethod
+    def shoot(cls):
+        if cls.currentAmmo > 0:
+            rad = math.radians(Player.angle)
+            
+            # Match the Player.draw() gun height
+            gunY = Player.legHeight + (Player.bodyHeight / Player.gunYDivisor)
+            # Match the gun's forward protrusion (base Z + cylinder length)
+            gunZLocal = (Player.bodyWidth * Player.gunZOffsetFactor) + Player.gunLength
+            
+            # Local to World transformation matching Player's rotation
+            muzzleX = Player.x + (Player.gunXOffset * math.cos(rad)) + (gunZLocal * math.sin(rad))
+            muzzleZ = Player.z - (Player.gunXOffset * math.sin(rad)) + (gunZLocal * math.cos(rad))
+
+            cls.bullets.append(Bullet(muzzleX, gunY, muzzleZ, Player.angle))
+            cls.currentAmmo -= 1
+
+    @classmethod
+    def updateBullets(cls):
+        for bullet in cls.bullets[:]:
+            bullet.update()
+            if bullet.life <= 0:
+                cls.bullets.remove(bullet)
+
+    @classmethod
+    def drawBullets(cls):
+        for bullet in cls.bullets:
+            bullet.draw()
+
+    @classmethod
+    def addAmmo(cls, amount):
+        cls.currentAmmo = min(cls.maxAmmo, cls.currentAmmo + amount)
+
+class HealthPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (1, 1, 1) # White
+        self.crossColor = (1, 0, 0) # Red
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        
+        # Red cross
+        glColor3f(*self.crossColor)
+        # Vertical bar
+        glPushMatrix()
+        glScalef(0.25, 1.0, 0.25)
+        glutSolidCube(60)
+        glPopMatrix()
+        # Horizontal bar
+        glPushMatrix()
+        glScalef(1.0, 0.25, 0.25)
+        glutSolidCube(60)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.heal(30)
+
+class AmmoPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.2, 0.2, 0.2) # Dark grey
+        self.tipColor = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        
+        # Center the bullet for rotation
+        glTranslatef(0, 0, -35) 
+        
+        # Back Casing half
+        glColor3f(*self.color)
+        gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
+        
+        # Close the bottom of the casing with a sphere cap
+        glPushMatrix()
+        glScalef(1.0, 1.0, 0.3) # Flatten the sphere into a cap
+        glutSolidSphere(15, 10, 10)
+        glPopMatrix()
+        
+        # Front Casing half (Same as tip color)
+        glTranslatef(0, 0, 25)
+        glColor3f(*self.tipColor) 
+        gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
+
+        # Bullet tip
+        glTranslatef(0, 0, 25)
+        glColor3f(*self.tipColor)
+        gluCylinder(gluNewQuadric(), 15, 0, 20, 10, 10)
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        Gun.addAmmo(10)
+
+class FoodPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.2, 0.8, 0.2) # Green
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0) # Rotate
+        glColor3f(*self.color)
+        glutSolidSphere(25, 12, 12)
+        glPopMatrix()
+
+    def apply(self, player):
+        player.addFood(1)
 
 class Game:
     isImplemented = False
@@ -273,6 +492,9 @@ def keyboardListener(key, x, y):
     if key == b'-':
         Camera.radius -= 5
 
+    if key == b' ':
+        Gun.shoot()
+
 def specialKeyListener(key, x, y):
     if key == GLUT_KEY_LEFT:
         Camera.angle -= 1
@@ -301,6 +523,15 @@ def display():
     Camera.setupCamera()
     Floor.draw()
     Player.draw()
+    
+    # Pickup collection logic
+    currentTile = Floor.getTile(Player.x, Player.z)
+    if currentTile and currentTile.object:
+        currentTile.object.apply(Player)
+        currentTile.object = None
+
+    Gun.updateBullets()
+    Gun.drawBullets()
     glutSwapBuffers()
 
 
@@ -315,4 +546,8 @@ glutKeyboardFunc(keyboardListener)
 glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
+# TEST SP AWNS - DELETE LATER
+Floor.getTile(300, 300).spawnObject(HealthPack)
+Floor.getTile(-300, 300).spawnObject(AmmoPack)
+Floor.getTile(300, -300).spawnObject(FoodPack)
 glutMainLoop()
