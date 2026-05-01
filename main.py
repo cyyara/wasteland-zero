@@ -153,6 +153,9 @@ class Player:
     angle = 0
     walkSpeed = 5
     turnSpeed = 3
+    health = 100
+    maxHealth = 100
+    food = 0
 
     # Tunable render settings
     legColor = (0.08, 0.12, 0.35)
@@ -272,6 +275,14 @@ class Player:
     @classmethod
     def turnRight(cls):
         cls.angle -= cls.turnSpeed
+
+    @classmethod
+    def heal(cls, amount):
+        cls.health = min(cls.maxHealth, cls.health + amount)
+
+    @classmethod
+    def addFood(cls, amount):
+        cls.food += amount
    
 
 class Bullet:
