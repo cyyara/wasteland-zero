@@ -261,6 +261,64 @@ class Player:
         cls.angle -= cls.turnSpeed
    
 
+class Bullet:
+    def __init__(self, x, y, z, angle):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.angle = angle
+        self.speed = 15
+        self.radius = 4
+        self.life = 100 
+        self.color = (1.0, 0.9, 0.2)
+
+    def update(self):
+        rad = math.radians(self.angle)
+        self.x += self.speed * math.sin(rad)
+        self.z += self.speed * math.cos(rad)
+        self.life -= 1
+
+    def draw(self):
+        glColor3f(*self.color)
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        glutSolidSphere(self.radius, 10, 10)
+        glPopMatrix()
+
+class Gun:
+    bullets = []
+    maxAmmo = 30
+    currentAmmo = 30
+
+    @classmethod
+    def shoot(cls):
+        if cls.currentAmmo > 0:
+            rad = math.radians(Player.angle)
+            
+            # Match the Player.draw() gun height
+            gunY = Player.legHeight + (Player.bodyHeight / Player.gunYDivisor)
+            # Match the gun's forward protrusion (base Z + cylinder length)
+            gunZLocal = (Player.bodyWidth * Player.gunZOffsetFactor) + Player.gunLength
+            
+            # Local to World transformation matching Player's rotation
+            muzzleX = Player.x + (Player.gunXOffset * math.cos(rad)) + (gunZLocal * math.sin(rad))
+            muzzleZ = Player.z - (Player.gunXOffset * math.sin(rad)) + (gunZLocal * math.cos(rad))
+
+            cls.bullets.append(Bullet(muzzleX, gunY, muzzleZ, Player.angle))
+            cls.currentAmmo -= 1
+
+    @classmethod
+    def updateBullets(cls):
+        for bullet in cls.bullets[:]:
+            bullet.update()
+            if bullet.life <= 0:
+                cls.bullets.remove(bullet)
+
+    @classmethod
+    def drawBullets(cls):
+        for bullet in cls.bullets:
+            bullet.draw()
+
 class Game:
     isImplemented = False
 
