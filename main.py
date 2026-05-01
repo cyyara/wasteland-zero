@@ -1,11 +1,3 @@
-# Create window - Done
-# Make ground
-# Make camera - Done (3rd POV)
-# See ground
-# Make player - Done
-# See player - Done
-# Move player - Done
-
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
@@ -86,41 +78,152 @@ class AcidicTile(Tile):
         self.color = (0, 0.2 + (pulse * 0.8), 0)
         super().draw()
 
+class WaterTile(Tile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        self.offset = random.uniform(0, 10)
+    
+    def draw(self):
+        self.color = (0, 0, 1)
+        super().draw()
+
+class SafeTile(Tile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        self.color = (1.0, 1.0, 0.0) 
+
+    def draw(self):
+        super().draw()
+
+class HomeTile(Tile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        self.color = (0.9, 0.85, 0.4)
+
+    def draw(self):
+        self.color = (0.9, 0.85, 0.4)
+        super().draw()
+
+class HomeBase:
+    rows = cols = 5
+    offsetX = 200
+    offsetZ = 500
+
+    homeDuration = 10
+    cooldownPeriod = 10
+
+    enterTime = None
+    cooldownStart = None
+
+    tiles = []
+    for r in range(rows):
+        row = []
+        for c in range(cols):
+            tileX = offsetX + (c - cols // 2) * Tile.length + Tile.length / 2
+            tileZ = offsetZ + r * Tile.width + Tile.width / 2
+            row.append(HomeTile(tileX, tileZ))
+        tiles.append(row)
+
+    @classmethod
+    def onCooldown(cls):
+        if cls.cooldownStart is None:
+            return False
+        return time.time() - cls.cooldownStart < cls.cooldownPeriod
+
+    @classmethod
+    def checkEntry(cls):
+        sr, sc = Floor.safeTilePosition
+        safeTile = Floor.tiles[sr][sc]
+        dist = math.sqrt((Player.x - safeTile.x) ** 2 + (Player.z - safeTile.z) ** 2)
+        if dist < Tile.length / 2 and not cls.onCooldown():
+            if not GameState.inHomebase:
+                GameState.inHomebase = True
+                cls.enterTime = time.time()
+
+        if GameState.inHomebase:
+            Player.x = cls.offsetX
+            Player.z = cls.offsetZ + (cls.rows * Tile.width) / 2
+
+    @classmethod
+    def update(cls):
+        if GameState.inHomebase:
+            elapsed = time.time() - cls.enterTime
+            if elapsed >= cls.homeDuration:
+                GameState.inHomebase = False
+                cls.enterTime = None
+                cls.cooldownStart = time.time()
+                sr, sc = Floor.safeTilePosition
+                safeTile = Floor.tiles[sr][sc]
+                Player.x = safeTile.x
+                Player.z = safeTile.z + Tile.width
+
+    @classmethod
+    def draw(cls):
+        if GameState.inHomebase:
+            for row in cls.tiles:
+                for tile in row:
+                    tile.draw()
+
 class Floor:
     rows = 50
     cols = 50
+
     length = rows * Tile.length
     width = cols * Tile.width
+
     x = 0
     z = 0
-    startX = x - length/2
-    startZ = z - length/2
 
+    startX = x - length / 2
+    startZ = z - length / 2
+
+    
     tiles = []
-
     currentX = startX
     currentZ = startZ
+
     for r in range(rows):
         row = []
         for c in range(cols):
             tileX = currentX + Tile.length/2
             tileZ = currentZ + Tile.width/2
-            chance = random.random()
-            if chance < 0.1:
-                tile = AcidicTile(tileX, tileZ)
-            else:
-                tile = Tile(tileX, tileZ)
+            tile = Tile(tileX, tileZ)
             row.append(tile)
             currentX += Tile.length
         tiles.append(row)
         currentX = startX
         currentZ += Tile.width
 
+    allPositions = []
+    for r in range(rows):
+        for c in range(cols):
+            allPositions.append((r, c))
+
+    waterPositions = random.sample(allPositions, random.randint(3, 5))
+
+    acidPool = []
+    for p in allPositions:
+        if p not in waterPositions:
+            acidPool.append(p)
+    acidPositions = random.sample(acidPool, int(rows * cols * 0.1))
+
+    safeTilePosition = random.choice(allPositions)
+
+    for (r, c) in waterPositions:
+        tiles[r][c] = WaterTile(tiles[r][c].x, tiles[r][c].z)
+
+    for (r, c) in acidPositions:
+        tiles[r][c] = AcidicTile(tiles[r][c].x, tiles[r][c].z)
+    
+    sr, sc = safeTilePosition
+    tiles[sr][sc] = SafeTile(tiles[sr][sc].x, tiles[sr][sc].z)
+    
     @classmethod
     def draw(cls):
         for r in range(cls.rows):
             for c in range(cls.cols):
                 cls.tiles[r][c].draw()
+
     @classmethod
     def getTile(cls, x, z):
         col = int((x - cls.startX) / Tile.length)
@@ -1050,6 +1153,9 @@ class Chest:
 class Game:
     isImplemented = False
 
+class GameState:
+    inHomebase = False
+
 class Sky:
     dayColor = numpy.array([0.72, 0.68, 0.38])
     nightColor = numpy.array([0.01, 0.00, 0.03])
@@ -1127,8 +1233,13 @@ def display():
     glLoadIdentity()  # Reset modelview matrix
     glViewport(0, 0, Window.width, Window.height)
 
+    HomeBase.update()
+    HomeBase.checkEntry()
+
     Camera.setupCamera()
-    Floor.draw()
+    if not GameState.inHomebase:
+        Floor.draw()
+    HomeBase.draw()
     Player.draw()
 
     # Update survival logic
