@@ -156,6 +156,8 @@ class Player:
     health = 100
     maxHealth = 100
     food = 0
+    keys = 0
+    immunity = 0
 
     # Tunable render settings
     legColor = (0.08, 0.12, 0.35)
@@ -283,6 +285,17 @@ class Player:
     @classmethod
     def addFood(cls, amount):
         cls.food += amount
+
+    @classmethod
+    def addImmunity(cls, amount):
+        cls.immunity += amount
+
+    @classmethod
+    def useKey(cls):
+        if cls.keys > 0:
+            cls.keys -= 1
+            return True
+        return False
    
 
 class Bullet:
@@ -378,6 +391,7 @@ class HealthPack:
 
     def apply(self, player):
         player.heal(30)
+        return True
 
 class AmmoPack:
     def __init__(self, x, z):
@@ -420,6 +434,7 @@ class AmmoPack:
 
     def apply(self, player):
         Gun.addAmmo(10)
+        return True
 
 class FoodPack:
     def __init__(self, x, z):
@@ -439,6 +454,85 @@ class FoodPack:
 
     def apply(self, player):
         player.addFood(1)
+        return True
+
+class Key:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0)
+        
+        glColor3f(*self.color)
+        
+        # Shaft (Horizontal)
+        glPushMatrix()
+        glTranslatef(0, 0, -10) # Center the 40-unit shaft (partially)
+        glScalef(0.2, 0.2, 1.0)
+        glutSolidCube(40)
+        glPopMatrix()
+        
+        # Ring (Bow)
+        glPushMatrix()
+        glTranslatef(0, 0, 15)
+        glutSolidSphere(8, 10, 10)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        player.keys += 1
+        return True
+
+class Chest:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.color = (0.4, 0.2, 0.1) # Brown
+        self.lockColor = (0.8, 0.6, 0.2) # Gold
+    
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0)
+        
+        # Chest Body (Wider)
+        glColor3f(*self.color)
+        glPushMatrix()
+        glScalef(1.5, 1.0, 1.0)
+        glutSolidCube(40)
+        glPopMatrix()
+        
+        # Lock
+        glPushMatrix()
+        glTranslatef(0, 0, 20)
+        glColor3f(*self.lockColor)
+        glutSolidCube(8)
+        glPopMatrix()
+        
+        glPopMatrix()
+
+    def apply(self, player):
+        if player.useKey():
+            # Grant Immunity
+            player.addImmunity(600)
+            
+            # Random reward
+            reward = random.choice(['hp', 'ammo', 'food'])
+            if reward == 'hp': player.heal(60)
+            elif reward == 'ammo': Gun.addAmmo(30)
+            else: player.addFood(3)
+            
+            return True
+        return False
 
 class Game:
     isImplemented = False
@@ -527,8 +621,8 @@ def display():
     # Pickup collection logic
     currentTile = Floor.getTile(Player.x, Player.z)
     if currentTile and currentTile.object:
-        currentTile.object.apply(Player)
-        currentTile.object = None
+        if currentTile.object.apply(Player):
+            currentTile.object = None
 
     Gun.updateBullets()
     Gun.drawBullets()
@@ -550,4 +644,6 @@ glutIdleFunc(animate)
 Floor.getTile(300, 300).spawnObject(HealthPack)
 Floor.getTile(-300, 300).spawnObject(AmmoPack)
 Floor.getTile(300, -300).spawnObject(FoodPack)
+Floor.getTile(-300, -300).spawnObject(Key)
+Floor.getTile(0, 400).spawnObject(Chest)
 glutMainLoop()
