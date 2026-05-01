@@ -523,6 +523,13 @@ def display():
     Camera.setupCamera()
     Floor.draw()
     Player.draw()
+    
+    # Pickup collection logic
+    currentTile = Floor.getTile(Player.x, Player.z)
+    if currentTile and currentTile.object:
+        currentTile.object.apply(Player)
+        currentTile.object = None
+
     Gun.updateBullets()
     Gun.drawBullets()
     glutSwapBuffers()
@@ -539,4 +546,8 @@ glutKeyboardFunc(keyboardListener)
 glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
+# TEST SP AWNS - DELETE LATER
+Floor.getTile(300, 300).spawnObject(HealthPack)
+Floor.getTile(-300, 300).spawnObject(AmmoPack)
+Floor.getTile(300, -300).spawnObject(FoodPack)
 glutMainLoop()
