@@ -1,107 +1,135 @@
-# WASTELAND ZERO
-### Feature Specification | CSE423: Computer Graphics 
+# Wasteland Zero
+
+A post-apocalyptic survival game built with Python and PyOpenGL for CSE423: Computer Graphics.
 
 ---
 
-## **Game Concept Overview**
+## Setup
 
-Wasteland Zero is a post-apocalyptic survival horror game built with Python and PyOpenGL. Players navigate a radioactive wasteland left behind after humanity's collapse. Every day you venture out to fight and scavenge, and every night you return home to feed and protect an injured pet who depends entirely on you.
+### Option 1: Virtual Environment (Recommended)
 
----
+```bash
+python -m venv .venv
+```
 
-## **Core Gameplay Loop**
+Activate:
+- Windows: `.venv\Scripts\activate`
+- Mac/Linux: `source .venv/bin/activate`
 
-The game runs on a repeating daily cycle that escalates in difficulty with each passing day:
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-1. Leave homebase and enter the wasteland  
-2. Fight enemies and collect resources  
-3. Survive hazards — radiation, boss encounters, random events  
-4. Return to homebase before nightfall  
-5. Feed and protect the injured pet (once per in-game day)  
-6. Repeat with increasing difficulty  
+Run:
+```bash
+python main.py
+```
 
----
+### Option 2: Manual
 
-## **Features**
-
-### Player System
-1. **Movement & Model**: Simple player model with basic animations: walk, run, interact, attack  
-2. **Customization**: (Visual only, no gameplay effect)
-    - Body color
-    - Leg color
-
-### View
-3. **Camera System**: Dynamic third-person orbiting camera with adjustable height, distance, and angle.
-
-### Combat System
-4. **Shooting Mechanics**: Shooting-based combat is the primary form of fighting. Ammo is a limited resource; players must scavenge to resupply.
-
-### Enemy System
-5. **Movement**: 
-    - Enemies patrol autonomously when idle.
-    - Aggro system: detect player → chase → attack.
-6. **Variants**:
-    - **Basic enemies**: Standard speed and damage (Mutants, Wanderers).
-    - **Advanced enemies**: Faster, ranged, or tankier threats (Shooters, Tanks).
-
-### World & Level Design
-7. **Radioactive Wasteland**:
-    - High-radiation zones (Acid) that deal continuous damage-over-time.
-    - More aggressive enemy spawns over time.
-    - Increased environmental hazards as the game progresses.
-    - **Homebase safe zone**: Enemies do not enter or spawn inside.
-8. **Day/Night Cycle**: Player must return to homebase before night falls to avoid total failure.
-
-### Pet Systems
-9. **Pet System**:
-    - Stationary, injured dependent.
-    - Represented by the "Biomass Reserve" (Food) requirement.
-    - Must be fed once per in-game day using food collected from chests.
-
-### Items & Loot System
-10. **Keys**: Dropped by defeated enemies; used to unlock chests.
-11. **Chests**: Require a key to open. Contain: health, ammo, and food.
-
-### Special Systems
-12. **Spaceship Travel**: 
-    - Allows safe long-distance travel across the wasteland.
-    - Enemies cannot damage the player while inside the ship.
-13. **Environmental Hazard — Radioactive Bombs**:
-    - Dropped from orbiting ships at random intervals.
-    - Warning: affected ground blinks before impact.
-    - Player must identify and vacate the zone before detonation.
-
-### UI & Game Systems
-14. **HUD**: Includes health bar, ammo counter, day counter, and danger level indicator.
-15. **Notification System**: Real-time feedback for items collected, hacks triggered, or critical warnings.
-16. **Minimap**: Shows player location, enemy positions, and points of interest.
+Place the `OpenGL` folder in the same directory as `main.py`, then run `main.py` with your Python interpreter.
 
 ---
 
-## **Technical Implementation**
+## Controls
 
-### How to Run
+| Key | Action |
+|-----|--------|
+| `W` `A` `S` `D` | Move and turn |
+| `Space` | Shoot |
+| `Q` | Exit spaceship / Leave homebase early |
+| `M` | Toggle minimap (local / global) |
+| `P` | Pause |
+| `C` | Customize player (from pause menu) |
+| `Arrow Keys` | Rotate and adjust camera |
+| `=` / `-` | Zoom camera in / out |
+| `` ` `` | Toggle debug mode |
+| `R` | Restart (from game over screen) |
 
-#### Option 1: Virtual Environment (Recommended)
-1. **Requirements**: Python 3.x and dependencies listed in `requirements.txt`.
-2. **Setup**:
-   - Set up a virtual environment: `python -m venv .venv`
-   - Activate it: `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Mac/Linux)
-   - Install dependencies: `pip install -r requirements.txt`
-3. **Execution**: Run `python main.py` to start the game.
+### Debug Mode Keys (when enabled)
 
-#### Option 2: Manual Folder Setup
-1. **Requirements**: Python 3.x.
-2. **Setup**: Place the `OpenGL` folder directly in the same directory as `main.py`.
-3. **Execution**: Run `main.py` directly using your Python interpreter.
+| Key | Action |
+|-----|--------|
+| `1` | Full health |
+| `2` | Full ammo |
+| `3` | Add key |
+| `4` | Spawn all enemy types |
+| `5` | Spawn all item types |
+| `6` | Enter spaceship |
+| `7` | Skip to night |
+| `8` | Trigger chest reward |
+| `B` | Drop bomb |
 
-### Controls
-* **WASD**: Movement  
-* **Space**: Shoot  
-* **B**: Drop Bomb (Hazard)  
-* **Q**: Exit Spaceship / Leave Homebase  
-* **M**: Toggle Minimap Mode  
-* **P**: Pause Game  
-* **` (Backtick)**: Toggle Debug Mode  
-* **Arrow Keys**: Adjust Camera View  
-* **= / -**: Zoom Camera In/Out  
+---
+
+## Gameplay
+
+### Core Loop
+
+Each run follows a repeating daily cycle that grows harder with each passing day:
+
+1. Leave the homebase through the portal
+2. Fight enemies and collect resources
+3. Survive hazards — acid zones, falling bombs, enemy fire
+4. Return to homebase before the day cycle ends
+5. Repeat with increasing difficulty
+
+Missing a full day/night cycle without returning to homebase results in **instant death**.
+
+### World
+
+The wasteland is a procedurally generated 40×40 tile grid. Each run places terrain features randomly with no two overlapping:
+
+| Tile | Effect |
+|------|--------|
+| Wasteland | Standard ground |
+| Acid | Drains biomass reserve, then health |
+| Water | Slowly restores health |
+| Trees | Impassable |
+| Portal | Entrance to homebase |
+
+### Enemies
+
+| Enemy | Behavior |
+|-------|----------|
+| Mutant | Balanced melee |
+| Wanderer | Slow, low health |
+| Shooter | Ranged, fires on cooldown |
+| Tank | Slow, high health, telegraphed ranged attack |
+
+All enemies patrol when idle and chase when the player enters detection range. Speed and detection range scale with difficulty over time. Tanks always drop loot on death. Other enemies have a 30% drop chance.
+
+### Items
+
+| Item | Effect |
+|------|--------|
+| Health Pack | Restores 25 HP (only if not full) |
+| Ammo Pack | Restores 10 ammo (only if not full) |
+| Food Pack | +1 biomass reserve |
+| Shield Pack | Temporary immunity to damage |
+| Key | Used to unlock chests |
+| Chest | Requires a key; gives a useful random reward |
+| Spaceship | Vehicle with separate health pool and acid immunity |
+
+### Homebase
+
+Entering the homebase via the portal:
+- Fully restores health and ammo
+- Marks the current cycle as visited (preventing the death penalty)
+- Automatically returns the player to the wasteland after 15 seconds
+- Triggers a 30-second portal cooldown on exit
+
+### Biomass Reserve
+
+Food collected from packs and chests fills the biomass reserve. When walking through acid without a shield, the reserve drains first — once it hits zero, health starts taking damage.
+
+---
+
+## Technical Notes
+
+- Single-file implementation (`main.py`)
+- Rendering: PyOpenGL with GLUT — `glutSolidSphere`, `glutSolidCube`, `gluCylinder` for 3D; `GL_QUADS` and `GL_POINTS` for 2D UI
+- No external assets — all geometry is procedural
+- All game state is held in class-level variables; no instances of manager classes are created
+```
