@@ -21,6 +21,8 @@ class DelayedAction:
             self.action()
             Game.DelayedActions.remove(self)
 
+
+
 class Camera:
     angle = 90
     height = 500
@@ -1081,10 +1083,14 @@ class Chest:
 
 class Game:
     DelayedActions = []
+    Bombs = []
+    Explosions = []
 
     @classmethod
     def update(cls):
-        for da in Game.DelayedActions: da.update()
+        for d in cls.DelayedActions[:]: d.update()
+        for b in cls.Bombs[:]: b.update()
+        for e in cls.Explosions[:]: e.update()
         Player.triggerTile()
     
 class GameState:
@@ -1138,6 +1144,18 @@ class Tileset:
     def spawnObject(self, r, c, obj):
         tile = self.tiles[r][c]
         tile.spawnObject(obj)
+
+    def getAdjacentTiles(self, tile):
+        col = int((tile.x - self.startX) / Tile.length)
+        row = int((tile.z - self.startZ) / Tile.width)
+        adj = []
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0: continue
+                nr, nc = row + dr, col + dc
+                if 0 <= nr < len(self.tiles) and 0 <= nc < len(self.tiles[0]):
+                    adj.append(self.tiles[nr][nc])
+        return adj
 
     def draw(self):
         for row in self.tiles:
@@ -1193,6 +1211,143 @@ class Wasteland(Tileset):
         self.changeTile(*self.portalPosition, PortalTile)
         self.spawnObject(*self.spaceshipPosition, Spaceship)
         self.spawnObject(*self.chestPosition, Chest)
+
+class Explosion:
+    def __init__(self, x, z, affectedTiles, maxRadius=350):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.affectedTiles = affectedTiles
+        self.currentRadius = 0
+        self.maxRadius = maxRadius
+        self.growthSpeed = 15
+        self.isFinished = False
+        Game.Explosions.append(self)
+
+    def update(self):
+        self.currentRadius += self.growthSpeed
+        if self.currentRadius >= self.maxRadius:
+            self.dealDamage()
+            self.isFinished = True
+            Game.Explosions.remove(self)
+
+    def dealDamage(self):
+        # Damage Player if they are on a blinking tile
+        playerTile = Floor.getTile(Player.x, Player.z)
+        if playerTile in self.affectedTiles:
+            damage = 50
+            if Player.mode == "human": Player.health -= damage
+            else: Player.saucerHealth -= damage
+        
+        # Damage Enemies if they are on a blinking tile
+        for enemy in EnemyManager.enemies[:]:
+            enemyTile = Floor.getTile(enemy.x, enemy.z)
+            if enemyTile in self.affectedTiles:
+                enemy.takeDamage(100)
+
+    def draw(self):
+        # Flashy colors
+        pulse = (math.sin(time.time() * 25) + 1) / 2
+        r = 1.0
+        g = 0.2 + 0.6 * pulse
+        b = 0.0
+        
+        glColor3f(r, g, b)
+        
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        glutSolidSphere(self.currentRadius, 32, 32)
+        
+        # Inner core
+        glColor3f(1, 1, 1)
+        glutSolidSphere(self.currentRadius * 0.6, 20, 20)
+        
+        glPopMatrix()
+
+class Bomb:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 1000 # Start in the sky
+        self.groundY = 30
+        self.isFalling = True
+        self.fallSpeed = 25
+        
+        self.fuseTime = 2.0
+        self.startTime = None # Starts after landing
+        self.blinkSpeed = 0.15
+        self.affectedTiles = []
+        tile = Floor.getTile(x, z)
+        if tile:
+            self.affectedTiles = Floor.current.getAdjacentTiles(tile)
+            self.affectedTiles.append(tile)
+        Game.Bombs.append(self)
+
+    def update(self):
+        if self.isFalling:
+            self.y -= self.fallSpeed
+            if self.y <= self.groundY:
+                self.y = self.groundY
+                self.isFalling = False
+                self.startTime = time.time()
+            return
+
+        elapsed = time.time() - self.startTime
+        if elapsed >= self.fuseTime:
+            Explosion(self.x, self.z, self.affectedTiles)
+            Game.Bombs.remove(self)
+
+    def draw(self):
+        isBlinkOn = False
+        elapsed = 0
+        
+        if not self.isFalling and self.startTime:
+            elapsed = time.time() - self.startTime
+            isBlinkOn = (int(elapsed / self.blinkSpeed) % 2) == 0
+        
+        # Draw blinking highlights on tiles (only after landing)
+        if not self.isFalling and isBlinkOn:
+            for tile in self.affectedTiles:
+                # Grab the tile color and maximize the red component
+                blinkColor = (1.0, tile.color[1], tile.color[2])
+                glColor3f(*blinkColor)
+                
+                startX = tile.x - tile.length/2
+                endX = startX + tile.length
+                startZ = tile.z - tile.width/2
+                endZ = startZ + tile.width
+                
+                glBegin(GL_QUADS)
+                glVertex3f(startX, 2, startZ)
+                glVertex3f(endX, 2, startZ)
+                glVertex3f(endX, 2, endZ)
+                glVertex3f(startX, 2, endZ)
+                glEnd()
+
+        # Draw the bomb itself
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        
+        # Pulsing scale during fuse
+        scale = 1.0
+        if not self.isFalling:
+            scale = 1.0 + (elapsed / self.fuseTime) * 0.7 if isBlinkOn else 1.0
+        glScalef(scale, scale, scale)
+        
+        glColor3f(0.1, 0.1, 0.1) # Black
+        glutSolidSphere(20, 15, 15)
+        
+        # Fuse spark (only after landing)
+        if not self.isFalling and isBlinkOn:
+            glColor3f(1, 1, 0)
+            glPushMatrix()
+            glTranslatef(0, 20, 0)
+            glutSolidSphere(5, 8, 8)
+            glPopMatrix()
+            
+        glPopMatrix()
+
+
 
 class Floor:
     homebase = Homebase(6, 6)
@@ -1258,6 +1413,9 @@ def keyboardListener(key, x, y):
 
     if key == b' ':
         Gun.shoot()
+    
+    if key == b'b':
+        Bomb(Player.x, Player.z)
 
 def specialKeyListener(key, x, y):
     if key == GLUT_KEY_LEFT:
@@ -1277,7 +1435,6 @@ def mouseListener(button, state, x, y):
 def animate():
     Game.update()
     glutPostRedisplay()
-
 
 def display():
     Sky.updateBackground()
@@ -1303,6 +1460,9 @@ def display():
 
     EnemyManager.update()
     EnemyManager.draw()
+
+    for b in Game.Bombs: b.draw()
+    for e in Game.Explosions: e.draw()
 
     HUD.draw()
     
