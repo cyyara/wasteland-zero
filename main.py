@@ -9,8 +9,7 @@ from OpenGL.GLU import *
 from OpenGL.GLUT import *
 import math
 import random
-import time
-import numpy 
+import time 
 
 # =============================================================================
 # INFRASTRUCTURE — Utilities and Foundation
@@ -1402,8 +1401,8 @@ class Explosion:
 # =============================================================================
 
 class DayNightManager:
-    dayColor = numpy.array([0.72, 0.68, 0.38])
-    nightColor = numpy.array([0.01, 0.00, 0.03])
+    dayColor = (0.72, 0.68, 0.38)
+    nightColor = (0.01, 0.00, 0.03)
     phaseDuration = 30
     startTime = time.time()
     dayCount = 1
@@ -1451,7 +1450,10 @@ class DayNightManager:
         if not isNight:
             brightness = math.sin(math.pi * progress)
         
-        currentColor = cls.nightColor + (cls.dayColor - cls.nightColor) * brightness
+        currentColor = tuple(
+            cls.nightColor[i] + (cls.dayColor[i] - cls.nightColor[i]) * brightness
+            for i in range(3)
+        )
         glClearColor(*currentColor, 1)
 
 class GameState:
