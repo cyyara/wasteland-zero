@@ -5,7 +5,22 @@ import math
 import random
 import time
 import numpy 
- 
+
+class DelayedAction:
+    def __init__(self, duration, action):
+        Game.DelayedActions.append(self)
+        self.duration = duration
+        self.startTime = time.time()
+        self.action = action
+
+    def isComplete(self):
+        return time.time() - self.startTime >= self.duration
+
+    def update(self):
+        if self.isComplete():
+            self.action()
+            Game.DelayedActions.remove(self)
+
 class Camera:
     angle = 90
     height = 500
@@ -44,11 +59,7 @@ class Tile:
         self.x = x
         self.z = z
         self.object = None
-        base = random.uniform(0.30, 0.45)
-        r = base + random.uniform(0.03, 0.08)
-        g = base + random.uniform(-0.01, 0.03)
-        b = base + random.uniform(-0.04, 0.01)
-        self.color = (r, g, b)
+        self.color = (1, 1, 1)
 
     def draw(self):
         startX = self.x - self.length/2
@@ -68,6 +79,26 @@ class Tile:
 
     def spawnObject(self, spawnable):
         self.object = spawnable(self.x, self.z)
+    
+    def trigger(self):
+        if self.object:
+            if self.object.apply(Player):
+                self.object = None
+    
+    def discolour(self):
+        r = self.color[0] * random.uniform(0.7, 1.0)
+        g = self.color[1] * random.uniform(0.7, 1.0)
+        b = self.color[2] * random.uniform(0.7, 1.0)
+        self.color = (r, g, b)
+
+class WastelandTile(Tile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        base = random.uniform(0.30, 0.45)
+        r = base + random.uniform(0.03, 0.08)
+        g = base + random.uniform(-0.01, 0.03)
+        b = base + random.uniform(-0.04, 0.01)
+        self.color = (r, g, b)
 
 class AcidTile(Tile):
     def __init__(self, x, z):
@@ -89,84 +120,41 @@ class WaterTile(Tile):
         super().draw()
 
 class PortalTile(Tile):
+    isActive = True
+    cooldownTime = 30
+
     def __init__(self, x, z):
         super().__init__(x, z)
-        self.color = (1.0, 1.0, 0.0) 
+        self.activeColor = (1.0, 1.0, 0.0) 
+        self.disabledColor = (0.5, 0.5, 0.0)
+    
+    @classmethod
+    def enable(cls):
+        cls.isActive = True
+    @classmethod
+    def disable(cls):
+        cls.isActive = False
+        DelayedAction(cls.cooldownTime, cls.enable)
 
+    def trigger(self):
+        if self.isActive:
+            Floor.homebase.enter(self)
+        
     def draw(self):
+        if self.isActive:
+            self.color = self.activeColor
+        else:
+            self.color = self.disabledColor
         super().draw()
 
 class HomeTile(Tile):
     def __init__(self, x, z):
         super().__init__(x, z)
         self.color = (0.9, 0.85, 0.4)
+        self.discolour()
 
     def draw(self):
-        self.color = (0.9, 0.85, 0.4)
         super().draw()
-
-#  class HomeBase:
-#     rows = cols = 5
-#     offsetX = 200
-#     offsetZ = 500
-
-#     homeDuration = 10
-#     cooldownPeriod = 10
-
-#     enterTime = None
-#     cooldownStart = None
-
-#     tiles = []
-#     for r in range(rows):
-#         row = []
-#         for c in range(cols):
-#             tileX = offsetX + (c - cols // 2) * Tile.length + Tile.length / 2
-#             tileZ = offsetZ + r * Tile.width + Tile.width / 2
-#             row.append(HomeTile(tileX, tileZ))
-#         tiles.append(row)
-
-#     @classmethod
-#     def onCooldown(cls):
-#         if cls.cooldownStart is None:
-#             return False
-#         return time.time() - cls.cooldownStart < cls.cooldownPeriod
-
-#     @classmethod
-#     def checkEntry(cls):
-#         sr, sc = Floor.safeTilePosition
-#         safeTile = Floor.tiles[sr][sc]
-#         dist = math.sqrt((Player.x - safeTile.x) ** 2 + (Player.z - safeTile.z) ** 2)
-#         if dist < Tile.length / 2 and not cls.onCooldown():
-#             if not GameState.inHomebase:
-#                 GameState.inHomebase = True
-#                 cls.enterTime = time.time()
-
-#         if GameState.inHomebase:
-#             Player.x = cls.offsetX
-#             Player.z = cls.offsetZ + (cls.rows * Tile.width) / 2
-
-#     @classmethod
-#     def update(cls):
-#         if GameState.inHomebase:
-#             elapsed = time.time() - cls.enterTime
-#             if elapsed >= cls.homeDuration:
-#                 GameState.inHomebase = False
-#                 cls.enterTime = None
-#                 cls.cooldownStart = time.time()
-#                 sr, sc = Floor.safeTilePosition
-#                 safeTile = Floor.tiles[sr][sc]
-#                 Player.x = safeTile.x
-#                 Player.z = safeTile.z + Tile.width
-
-#     @classmethod
-#     def draw(cls):
-#         if GameState.inHomebase:
-#             for row in cls.tiles:
-#                 for tile in row:
-#                     tile.draw()
-
-
-
 
 class Player:
     headRadius = 25
@@ -225,6 +213,11 @@ class Player:
     cylinderStacks = 10
     headSlices = 20
     headStacks = 20
+
+    @classmethod
+    def triggerTile(cls):
+        tile = Floor.getTile(cls.x, cls.z)
+        if tile: tile.trigger()
 
 
     @classmethod
@@ -1086,6 +1079,14 @@ class Chest:
             return True
         return False
 
+class Game:
+    DelayedActions = []
+
+    @classmethod
+    def update(cls):
+        for da in Game.DelayedActions: da.update()
+        Player.triggerTile()
+    
 class GameState:
     inHomebase = False
 
@@ -1134,15 +1135,42 @@ class Tileset:
         oldTile = self.tiles[r][c]
         self.tiles[r][c] = newTile(oldTile.x, oldTile.z)
     
+    def spawnObject(self, r, c, obj):
+        tile = self.tiles[r][c]
+        tile.spawnObject(obj)
 
     def draw(self):
         for row in self.tiles:
             for tile in row:
                 tile.draw()
 
+class Homebase(Tileset):
+    homeDuration = 15
+    originPortal = None
+    enterTime = None
+    cooldownStart = None
+
+    def __init__(self, rows, columns):
+        super().__init__(rows, columns, HomeTile)
+
+    def enter(self, portal):
+        Floor.current = Floor.homebase
+        self.originPortal = portal
+        Player.x = 0
+        Player.z = 0
+        DelayedAction(self.homeDuration, self.exit)
+    
+    def exit(self):
+        Floor.current = Floor.wasteland
+        Player.x = self.originPortal.x
+        Player.z = self.originPortal.z
+        self.originPortal = None
+        PortalTile.disable()
+
+
 class Wasteland(Tileset):
     def __init__(self, rows, columns):
-        super().__init__(rows, columns, tile=Tile)
+        super().__init__(rows, columns, tile=WastelandTile)
 
         self.acidPositions = []
         self.waterPositions = []
@@ -1163,11 +1191,11 @@ class Wasteland(Tileset):
         for r, c in self.acidPositions: self.changeTile(r, c, AcidTile)
 
         self.changeTile(*self.portalPosition, PortalTile)
-        self.changeTile(*self.spaceshipPosition, Spaceship)
-        self.changeTile(*self.chestPosition, Chest)
+        self.spawnObject(*self.spaceshipPosition, Spaceship)
+        self.spawnObject(*self.chestPosition, Chest)
 
 class Floor:
-    homebase = Tileset(6, 6, HomeTile)
+    homebase = Homebase(6, 6)
     wasteland = Wasteland(50, 50)
     current = wasteland
     
@@ -1247,6 +1275,7 @@ def mouseListener(button, state, x, y):
             
 
 def animate():
+    Game.update()
     glutPostRedisplay()
 
 
@@ -1268,11 +1297,6 @@ def display():
     # Update survival logic
     if Player.immunity > 0:
         Player.immunity -= 1
-    # Pickup collection logic
-    # currentTile = Floor.getTile(Player.x, Player.z)
-    # if currentTile and currentTile.object:
-    #     if currentTile.object.apply(Player):
-    #         currentTile.object = None
 
     Gun.updateBullets()
     Gun.drawBullets()
