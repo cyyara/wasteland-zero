@@ -164,6 +164,19 @@ class AcidTile(Tile):
         self.color = (0, 0.2 + (pulse * 0.8), 0)
         super().draw()
 
+    def trigger(self):
+        super().trigger()
+        if Player.mode == "spaceship":
+            return
+        if Player.immunity > 0:
+            Notifications.add("ACID TILE: IMMUNITY PROTECTED YOU")
+        elif Player.food > 0:
+            Player.food = max(0, Player.food - 0.01)
+            Notifications.add("ACID TILE: YOU SACRIFICED THE BIOMASS")
+        else:
+            Player.health -= 0.2
+            Notifications.add("ACID TILE: YOU ARE TAKING DAMAGE")
+
 class WaterTile(Tile):
     minimapColor = (0.0, 0.4, 0.7)
     def __init__(self, x, z):
@@ -174,6 +187,12 @@ class WaterTile(Tile):
         self.color = (0, 0, 1)
         super().draw()
 
+    def trigger(self):
+        super().trigger()
+        if Player.mode == "spaceship":
+            return
+        Notifications.add("WATER TILE: MHMM, VERY SOOTHING")
+        Player.heal(0.05)
 # isActive is class-level because there is only ever one portal per wasteland.
 # Cooldown is managed via DelayedAction rather than a timer in update().
 class PortalTile(Tile):
