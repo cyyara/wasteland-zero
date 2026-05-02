@@ -8,7 +8,7 @@ import numpy
 
 class DelayedAction:
     def __init__(self, duration, action):
-        Game.DelayedActions.append(self)
+        Game.delayedActions.append(self)
         self.duration = duration
         self.startTime = time.time()
         self.action = action
@@ -19,7 +19,237 @@ class DelayedAction:
     def update(self):
         if self.isComplete():
             self.action()
-            Game.DelayedActions.remove(self)
+            if self in Game.delayedActions:
+                Game.delayedActions.remove(self)
+
+class Notifications:
+    # Use a dictionary to store {message: expiry_time} for automatic deduplication
+    active = {}
+
+    @classmethod
+    def add(cls, message, duration=3.0):
+        # Always use the latest expiry for a message
+        cls.active[message] = time.time() + duration
+
+    @classmethod
+    def draw(cls):
+        now = time.time()
+        # Filter out expired notifications
+        cls.active = {msg: expiry for msg, expiry in cls.active.items() if now < expiry}
+        
+        # Sort by expiry time so they stay in a consistent order
+        sorted_msgs = sorted(cls.active.keys(), key=lambda x: cls.active[x])
+        
+        for i, msg in enumerate(sorted_msgs):
+            # Draw above HUD center
+            UIManager.drawText(Window.width//2 - 100, 150 + i * 25, msg, (1, 1, 0.5))
+
+class Debug:
+    enabled = False
+
+    @classmethod
+    def toggle(cls): 
+        cls.enabled = not cls.enabled
+        Notifications.add(f"DEBUG MODE: {'ON' if cls.enabled else 'OFF'}")
+
+    @classmethod
+    def fullHealth(cls): 
+        Player.health = Player.maxHealth
+        Notifications.add("HACK: FULL HEALTH")
+    @classmethod
+    def fullAmmo(cls): 
+        Gun.currentAmmo = Gun.maxAmmo
+        Notifications.add("HACK: FULL AMMO")
+    @classmethod
+    def addKey(cls): 
+        Player.keys += 1
+        Notifications.add("HACK: +1 KEY")
+    @classmethod
+    def spawnAllEnemies(cls):
+        types = ["mutant", "wanderer", "shooter", "tank"]
+        for i, t in enumerate(types):
+            EnemyManager.spawnEnemy(Player.x + 200 + i*150, Player.z, t)
+        Notifications.add("HACK: SPAWNED ALL ENEMY TYPES")
+
+    @classmethod
+    def spawnAllItems(cls):
+        items = [HealthPack, AmmoPack, FoodPack, ShieldPack, Key, Chest]
+        for i, item in enumerate(items):
+            tile = Floor.getTile(Player.x + 200 + i*150, Player.z)
+            if tile: tile.spawnObject(item)
+        Notifications.add("HACK: SPAWNED ALL ITEM TYPES")
+
+    @classmethod
+    def enterSpaceship(cls):
+        Player.mode = "spaceship"
+        Player.saucerHealth = Player.maxSaucerHealth
+        Notifications.add("HACK: ENTERED SPACESHIP")
+
+    @classmethod
+    def triggerChestReward(cls):
+        # Trigger reward logic instantly
+        Player.addImmunity(600)
+        options = []
+        if Player.health < Player.maxHealth: options.append('hp')
+        if Gun.currentAmmo < Gun.maxAmmo: options.append('ammo')
+        options.extend(['food', 'shield'])
+        
+        reward = random.choice(options)
+        if reward == 'hp': 
+            Player.heal(50)
+            Notifications.add("HACK REWARD: HEALTH REPLENISHED")
+        elif reward == 'ammo': 
+            Gun.currentAmmo = min(Gun.maxAmmo, Gun.currentAmmo + 20)
+            Notifications.add("HACK REWARD: AMMO RESTOCKED")
+        elif reward == 'food': 
+            Player.addFood(3)
+            Notifications.add("HACK REWARD: BIOMASS BOOST")
+        elif reward == 'shield': 
+            Player.addImmunity(1800)
+            Notifications.add("HACK REWARD: SHIELD OVERCHARGE")
+        return True
+
+    @classmethod
+    def skipToNight(cls): 
+        DayNightManager.startTime = time.time() - DayNightManager.phaseDuration
+        Notifications.add("HACK: INSTANT NIGHT")
+
+class Bomb:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 1000 # Start in the sky
+        self.groundY = 30
+        self.isFalling = True
+        self.fallSpeed = 25
+        
+        self.fuseTime = 2.0
+        self.startTime = None # Starts after landing
+        self.blinkSpeed = 0.15
+        self.affectedTiles = []
+        tile = Floor.getTile(x, z)
+        if tile:
+            self.affectedTiles = Floor.current.getAdjacentTiles(tile)
+            self.affectedTiles.append(tile)
+        Game.bombs.append(self)
+
+    def update(self):
+        if self.isFalling:
+            self.y -= self.fallSpeed
+            if self.y <= self.groundY:
+                self.y = self.groundY
+                self.isFalling = False
+                self.startTime = time.time()
+            return
+
+        elapsed = time.time() - self.startTime
+        if elapsed >= self.fuseTime:
+            Explosion(self.x, self.z, self.affectedTiles)
+            if self in Game.bombs:
+                Game.bombs.remove(self)
+
+    def draw(self):
+        isBlinkOn = False
+        elapsed = 0
+        
+        if not self.isFalling and self.startTime:
+            elapsed = time.time() - self.startTime
+            isBlinkOn = (int(elapsed / self.blinkSpeed) % 2) == 0
+        
+        # Draw blinking highlights on tiles (only after landing)
+        if not self.isFalling and isBlinkOn:
+            for tile in self.affectedTiles:
+                # Grab the tile color and maximize the red component
+                blinkColor = (1.0, tile.color[1], tile.color[2])
+                glColor3f(*blinkColor)
+                
+                startX = tile.x - tile.length/2
+                endX = startX + tile.length
+                startZ = tile.z - tile.width/2
+                endZ = startZ + tile.width
+                
+                glBegin(GL_QUADS)
+                glVertex3f(startX, 2, startZ)
+                glVertex3f(endX, 2, startZ)
+                glVertex3f(endX, 2, endZ)
+                glVertex3f(startX, 2, endZ)
+                glEnd()
+
+        # Draw the bomb itself
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        
+        # Pulsing scale during fuse
+        scale = 1.0
+        if not self.isFalling:
+            scale = 1.0 + (elapsed / self.fuseTime) * 0.7 if isBlinkOn else 1.0
+        glScalef(scale, scale, scale)
+        
+        glColor3f(0.1, 0.1, 0.1) # Black
+        glutSolidSphere(20, 15, 15)
+        
+        # Fuse spark (only after landing)
+        if not self.isFalling and isBlinkOn:
+            glColor3f(1, 1, 0)
+            glPushMatrix()
+            glTranslatef(0, 20, 0)
+            glutSolidSphere(5, 8, 8)
+            glPopMatrix()
+            
+        glPopMatrix()
+
+class Explosion:
+    def __init__(self, x, z, affectedTiles, maxRadius=350):
+        self.x = x
+        self.z = z
+        self.y = 50
+        self.affectedTiles = affectedTiles
+        self.currentRadius = 0
+        self.maxRadius = maxRadius
+        self.growthSpeed = 15
+        self.isFinished = False
+        Game.explosions.append(self)
+
+    def update(self):
+        self.currentRadius += self.growthSpeed
+        if self.currentRadius >= self.maxRadius:
+            self.dealDamage()
+            self.isFinished = True
+            if self in Game.explosions:
+                Game.explosions.remove(self)
+
+    def dealDamage(self):
+        # Damage Player if they are on a blinking tile
+        playerTile = Floor.getTile(Player.x, Player.z)
+        if playerTile in self.affectedTiles:
+            damage = 50
+            if Player.mode == "human": Player.health -= damage
+            else: Player.saucerHealth -= damage
+        
+        # Damage Enemies if they are on a blinking tile
+        for enemy in EnemyManager.enemies[:]:
+            enemyTile = Floor.getTile(enemy.x, enemy.z)
+            if enemyTile in self.affectedTiles:
+                enemy.takeDamage(100)
+
+    def draw(self):
+        # Flashy colors
+        pulse = (math.sin(time.time() * 25) + 1) / 2
+        r = 1.0
+        g = 0.2 + 0.6 * pulse
+        b = 0.0
+        
+        glColor3f(r, g, b)
+        
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        glutSolidSphere(self.currentRadius, 32, 32)
+        
+        # Inner core
+        glColor3f(1, 1, 1)
+        glutSolidSphere(self.currentRadius * 0.6, 20, 20)
+        
+        glPopMatrix()
 
 
 
@@ -57,10 +287,11 @@ class Camera:
 
 class Window:
     width = 1000
-    height = 700
+    height = 650
 
 class Tile:
     length = width = 150
+    minimapColor = (0.35, 0.35, 0.35)
     
     def __init__(self, x, z):
         self.x = x
@@ -93,7 +324,7 @@ class Tile:
             if self.object.apply(Player):
                 self.object = None
     
-    def discolour(self):
+    def discolor(self):
         r = self.color[0] * random.uniform(0.7, 1.0)
         g = self.color[1] * random.uniform(0.7, 1.0)
         b = self.color[2] * random.uniform(0.7, 1.0)
@@ -109,6 +340,7 @@ class WastelandTile(Tile):
         self.color = (r, g, b)
 
 class AcidTile(Tile):
+    minimapColor = (0.2, 0.8, 0.2)
     def __init__(self, x, z):
         super().__init__(x, z)
         self.offset = random.uniform(0, 10)
@@ -119,6 +351,7 @@ class AcidTile(Tile):
         super().draw()
 
 class WaterTile(Tile):
+    minimapColor = (0.0, 0.4, 0.7)
     def __init__(self, x, z):
         super().__init__(x, z)
         self.offset = random.uniform(0, 10)
@@ -130,6 +363,7 @@ class WaterTile(Tile):
 class PortalTile(Tile):
     isActive = True
     cooldownTime = 30
+    minimapColor = (0.8, 0.8, 0.0)
 
     def __init__(self, x, z):
         super().__init__(x, z)
@@ -159,12 +393,13 @@ class HomeTile(Tile):
     def __init__(self, x, z):
         super().__init__(x, z)
         self.color = (0.9, 0.85, 0.4)
-        self.discolour()
+        self.discolor()
 
     def draw(self):
         super().draw()
 
 class TreeTile(WastelandTile):
+    minimapColor = (0.05, 0.15, 0.05)
     def __init__(self, x, z):
         super().__init__(x, z)
         self.isWalkable = False
@@ -204,6 +439,141 @@ class TreeTile(WastelandTile):
         glPushMatrix(); glTranslatef(-15, -10, -10); glutSolidSphere(self.thickness * 1.5, 8, 8); glPopMatrix()
         glPopMatrix()
         
+        glPopMatrix()
+
+class PlayerRenderer:
+    # Tunable render settings
+    legColor = [0.08, 0.12, 0.35]
+    bodyColor = [0.50, 0.10, 0.18]
+    handColor = (0.8, 0.5, 0.25)
+    headColor = (0.0, 0.0, 0.0)
+    gunColor = (0.35, 0.35, 0.35)
+    gunHandleColor = (0.2, 0.2, 0.2)
+
+    legXOffsetFactor = 0.25
+    handYDivisor = 1.4
+    gunXOffset = -20
+    gunYDivisor = 1.2
+    gunZOffsetFactor = 0.5
+    gunHandleXOffset = 0
+    gunHandleYOffset = -12
+    gunHandleZOffset = 10
+
+    cylinderSlices = 10
+    cylinderStacks = 10
+    headSlices = 20
+    headStacks = 20
+
+    @classmethod
+    def draw(cls, player):
+        if player.mode == "human":
+            cls.drawHuman(player)
+        else:
+            cls.drawSpaceship(player)
+
+    @classmethod
+    def drawHuman(cls, player):
+        glPushMatrix()
+        glTranslatef(player.x, 0, player.z)
+        glRotatef(player.angle, 0, 1, 0) 
+
+        legXOffset = player.bodyWidth * cls.legXOffsetFactor
+        handY = player.legHeight + (player.bodyHeight / cls.handYDivisor)
+        gunY = player.legHeight + (player.bodyHeight / cls.gunYDivisor)
+        gunZ = player.bodyWidth * cls.gunZOffsetFactor
+
+        # Right leg
+        glColor3f(*cls.legColor)
+        glPushMatrix()
+        glTranslatef(-legXOffset, 0, 0)
+        glRotatef(-90, 1, 0, 0)
+        gluCylinder(gluNewQuadric(), player.legBottomWidth / 2, player.legBaseWidth / 2, player.legHeight, cls.cylinderSlices, cls.cylinderStacks)
+        glPopMatrix()
+
+        # Left leg
+        glColor3f(*cls.legColor)
+        glPushMatrix()
+        glTranslatef(legXOffset, 0, 0)
+        glRotatef(-90, 1, 0, 0)
+        gluCylinder(gluNewQuadric(), player.legBottomWidth / 2, player.legBaseWidth / 2, player.legHeight, cls.cylinderSlices, cls.cylinderStacks)
+        glPopMatrix()
+
+        # Body
+        glColor3f(*cls.bodyColor)
+        glPushMatrix()
+        glTranslatef(0, player.legHeight + player.bodyHeight / 2, 0)
+        glScalef(player.bodyWidth, player.bodyHeight, player.bodyThickness)
+        glutSolidCube(1)
+        glPopMatrix()
+
+        # Right hand
+        glColor3f(*cls.handColor)
+        glPushMatrix()
+        glTranslatef(player.bodyWidth/2 - player.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), player.handBaseRadius, player.handTopRadius, player.handLength, cls.cylinderSlices, cls.cylinderStacks)
+        glPopMatrix()
+
+        # Left hand
+        glColor3f(*cls.handColor)
+        glPushMatrix()
+        glTranslatef(-player.bodyWidth/2 + player.handBaseRadius, handY, 0)
+        gluCylinder(gluNewQuadric(), player.handBaseRadius, player.handTopRadius, player.handLength, cls.cylinderSlices, cls.cylinderStacks)
+        glPopMatrix()
+
+        # Head
+        glColor3f(*cls.headColor)
+        glPushMatrix()
+        glTranslatef(0, player.legHeight + player.bodyHeight + player.headRadius, 0)
+        glutSolidSphere(player.headRadius, cls.headSlices, cls.headStacks)
+        glPopMatrix()
+
+        # Gun
+        glColor3f(*cls.gunColor)
+        glPushMatrix()
+        glTranslatef(cls.gunXOffset, gunY, gunZ)
+        gluCylinder(gluNewQuadric(), player.gunBaseRadius, player.gunTopRadius, player.gunLength, cls.cylinderSlices, cls.cylinderStacks)
+
+        # Gun handle
+        glColor3f(*cls.gunHandleColor)
+        glPushMatrix()
+        glTranslatef(cls.gunHandleXOffset, cls.gunHandleYOffset, cls.gunHandleZOffset)
+        glScalef(player.gunHandleWidth, player.gunHandleHeight, player.gunHandleThickness)
+        glutSolidCube(1)
+        glPopMatrix()
+
+        glPopMatrix()
+        glPopMatrix()
+
+    @classmethod
+    def drawSpaceship(cls, player):
+        glPushMatrix()
+        # Hover effect
+        hoverY = 40 + math.sin(time.time() * 3) * 15
+        glTranslatef(player.x, hoverY, player.z)
+        glRotatef(player.angle, 0, 1, 0)
+
+        # Main Body
+        glColor3f(0.5, 0.5, 0.5) # Silver
+        glPushMatrix()
+        glScalef(3.0, 0.6, 3.0)
+        glutSolidSphere(40, 20, 20)
+        glPopMatrix()
+
+        # Cockpit Dome
+        glColor3f(0.0, 0.8, 1.0) # Cyan
+        glPushMatrix()
+        glTranslatef(0, 18, 0)
+        glScalef(1.0, 1.3, 1.0)
+        glutSolidSphere(25, 20, 20)
+        glPopMatrix()
+
+        # Front Indicator
+        glPushMatrix()
+        glTranslatef(0, 5, 120) 
+        glColor3f(1.0, 0.5, 0.0)
+        glutSolidSphere(10, 10, 10)
+        glPopMatrix()
+
         glPopMatrix()
 
 class Player:
@@ -265,148 +635,14 @@ class Player:
                     Floor.wasteland.positions.remove((row, col))
                 cls.mode = "human"
 
-    # Tunable render settings
-    legColor = [0.08, 0.12, 0.35]
-    bodyColor = [0.50, 0.10, 0.18]
-    handColor = (0.8, 0.5, 0.25)
-    headColor = (0.0, 0.0, 0.0)
-    gunColor = (0.35, 0.35, 0.35)
-    gunHandleColor = (0.2, 0.2, 0.2)
-
-    legXOffsetFactor = 0.25
-    handYDivisor = 1.4
-    gunXOffset = -20
-    gunYDivisor = 1.2
-    gunZOffsetFactor = 0.5
-    gunHandleXOffset = 0
-    gunHandleYOffset = -12
-    gunHandleZOffset = 10
-
-    cylinderSlices = 10
-    cylinderStacks = 10
-    headSlices = 20
-    headStacks = 20
-
     @classmethod
     def triggerTile(cls):
         tile = Floor.getTile(cls.x, cls.z)
         if tile: tile.trigger()
 
-
     @classmethod
     def draw(cls):
-        if cls.mode == "human":
-            cls.drawHuman()
-        else:
-            cls.drawSpaceship()
-
-    @classmethod
-    def drawHuman(cls):
-        glPushMatrix()
-        glTranslatef(cls.x, 0, cls.z)
-        glRotatef(cls.angle, 0, 1, 0) 
-
-        legXOffset = cls.bodyWidth * cls.legXOffsetFactor
-        handY = cls.legHeight + (cls.bodyHeight / cls.handYDivisor)
-        gunY = cls.legHeight + (cls.bodyHeight / cls.gunYDivisor)
-        gunZ = cls.bodyWidth * cls.gunZOffsetFactor
-
-        # Right leg
-        glColor3f(*cls.legColor)
-        glPushMatrix()
-        glTranslatef(-legXOffset, 0, 0)
-        glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
-        glPopMatrix()
-
-        # Left leg
-        glColor3f(*cls.legColor)
-        glPushMatrix()
-        glTranslatef(legXOffset, 0, 0)
-        glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), cls.legBottomWidth / 2, cls.legBaseWidth / 2, cls.legHeight, cls.cylinderSlices, cls.cylinderStacks)
-        glPopMatrix()
-
-
-        # Body
-        glColor3f(*cls.bodyColor)
-        glPushMatrix()
-        glTranslatef(0, cls.legHeight + cls.bodyHeight / 2, 0)
-        glScalef(cls.bodyWidth, cls.bodyHeight, cls.bodyThickness)
-        glutSolidCube(1)
-        glPopMatrix()
-
-        # Right hand
-        glColor3f(*cls.handColor)
-        glPushMatrix()
-        glTranslatef(cls.bodyWidth/2 - cls.handBaseRadius, handY, 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
-        glPopMatrix()
-
-        # Left hand
-        glColor3f(*cls.handColor)
-        glPushMatrix()
-        glTranslatef(-cls.bodyWidth/2 + cls.handBaseRadius, handY, 0)
-        gluCylinder(gluNewQuadric(), cls.handBaseRadius, cls.handTopRadius, cls.handLength, cls.cylinderSlices, cls.cylinderStacks)
-        glPopMatrix()
-
-        # Head
-        glColor3f(*cls.headColor)
-        glPushMatrix()
-        glTranslatef(0, cls.legHeight + cls.bodyHeight + cls.headRadius, 0)
-        glutSolidSphere(cls.headRadius, cls.headSlices, cls.headStacks)
-        glPopMatrix()
-
-        # Gun
-        glColor3f(*cls.gunColor)
-        glPushMatrix()
-        glTranslatef(cls.gunXOffset, gunY, gunZ)
-        gluCylinder(gluNewQuadric(), cls.gunBaseRadius, cls.gunTopRadius, cls.gunLength, cls.cylinderSlices, cls.cylinderStacks)
-
-        # Gun handle
-        glColor3f(*cls.gunHandleColor)
-        glPushMatrix()
-        glTranslatef(cls.gunHandleXOffset, cls.gunHandleYOffset, cls.gunHandleZOffset)
-        glScalef(cls.gunHandleWidth, cls.gunHandleHeight, cls.gunHandleThickness)
-        glutSolidCube(1)
-        glPopMatrix()
-
-        glPopMatrix()
-
-        glPopMatrix()
-
-    @classmethod
-    def drawSpaceship(cls):
-        glPushMatrix()
-        # Hover effect
-        hoverY = 40 + math.sin(time.time() * 3) * 15
-        glTranslatef(cls.x, hoverY, cls.z)
-        glRotatef(cls.angle, 0, 1, 0)
-
-        # Main Body
-        glColor3f(0.5, 0.5, 0.5) # Silver
-        glPushMatrix()
-        glScalef(3.0, 0.6, 3.0)
-        glutSolidSphere(40, 20, 20)
-        glPopMatrix()
-
-        # Cockpit Dome (More protruding)
-        glColor3f(0.0, 0.8, 1.0) # Cyan
-        glPushMatrix()
-        glTranslatef(0, 18, 0) # Higher up
-        glScalef(1.0, 1.3, 1.0) # Taller dome
-        glutSolidSphere(25, 20, 20)
-        glPopMatrix()
-
-        # Navigation Light (Direction indicator - Front)
-        glPushMatrix()
-        glTranslatef(0, 5, 120) 
-        glColor3f(1.0, 0.5, 0.0) # Bright orange
-        glutSolidSphere(10, 10, 10)
-        glPopMatrix()
-
-        glPopMatrix()
-
+        PlayerRenderer.draw(cls)
 
     @classmethod
     def moveForward(cls):
@@ -471,190 +707,178 @@ class Player:
    
 
 class Bullet:
-    def __init__(self, x, y, z, angle):
+    def __init__(self, x, y, z, angle, damage=10, speed=15, radius=4, color=(1, 0.9, 0.2), team="player"):
         self.x = x
         self.y = y
         self.z = z
         self.angle = angle
-        self.speed = 15
-        self.radius = 4
-        self.life = 100 
-        self.color = (1.0, 0.9, 0.2)
+        self.damage = damage
+        self.speed = speed
+        self.radius = radius
+        self.color = color
+        self.team = team
+        self.life = 100
+        Game.bullets.append(self)
 
     def update(self):
         rad = math.radians(self.angle)
         self.x += self.speed * math.sin(rad)
         self.z += self.speed * math.cos(rad)
         self.life -= 1
-
-        # Check tree collision
+        
         tile = Floor.getTile(self.x, self.z)
         if tile and not tile.isWalkable:
             self.life = 0
+            return
+
+        if self.team == "player":
+            for enemy in EnemyManager.enemies:
+                dx = self.x - enemy.x
+                dz = self.z - enemy.z
+                # Collision radius varies by type
+                radius = 70 if isinstance(enemy, Tank) else 40
+                if math.sqrt(dx*dx + dz*dz) < radius:
+                    enemy.takeDamage(self.damage)
+                    self.life = 0
+                    break
+        else:
+            dx = self.x - Player.x
+            dz = self.z - Player.z
+            if math.sqrt(dx*dx + dz*dz) < 40 and abs(self.y - 50) < 50:
+                if Player.immunity <= 0:
+                    if Player.mode == "human": Player.health -= self.damage
+                    else: Player.saucerHealth -= self.damage
+                self.life = 0
 
     def draw(self):
         glColor3f(*self.color)
         glPushMatrix()
         glTranslatef(self.x, self.y, self.z)
-        glutSolidSphere(self.radius, 10, 10)
+        glutSolidSphere(self.radius, 8, 8)
         glPopMatrix()
 
 class Gun:
-    bullets = []
     maxAmmo = 30
     currentAmmo = 30
 
     @classmethod
     def shoot(cls):
-        if Player.mode == "spaceship": return # Can't shoot while flying
+        if Player.mode == "spaceship": return
         if cls.currentAmmo > 0:
             rad = math.radians(Player.angle)
-            
-            # Match the Player.draw() gun height
-            gunY = Player.legHeight + (Player.bodyHeight / Player.gunYDivisor)
-            # Match the gun's forward protrusion (base Z + cylinder length)
-            gunZLocal = (Player.bodyWidth * Player.gunZOffsetFactor) + Player.gunLength
-            
-            # Local to World transformation matching Player's rotation
-            muzzleX = Player.x + (Player.gunXOffset * math.cos(rad)) + (gunZLocal * math.sin(rad))
-            muzzleZ = Player.z - (Player.gunXOffset * math.sin(rad)) + (gunZLocal * math.cos(rad))
+            gunY = Player.legHeight + (Player.bodyHeight / PlayerRenderer.gunYDivisor)
+            gunZLocal = (Player.bodyWidth * PlayerRenderer.gunZOffsetFactor) + Player.gunLength
+            muzzleX = Player.x + (PlayerRenderer.gunXOffset * math.cos(rad)) + (gunZLocal * math.sin(rad))
+            muzzleZ = Player.z - (PlayerRenderer.gunXOffset * math.sin(rad)) + (gunZLocal * math.cos(rad))
 
-            cls.bullets.append(Bullet(muzzleX, gunY, muzzleZ, Player.angle))
+            Bullet(muzzleX, gunY, muzzleZ, Player.angle, damage=20)
             cls.currentAmmo -= 1
-
-    @classmethod
-    def updateBullets(cls):
-        for bullet in cls.bullets[:]:
-            bullet.update()
-            
-            # Check collision with enemies
-            hit = False
-            for enemy in EnemyManager.enemies:
-                dx = bullet.x - enemy.x
-                dz = bullet.z - enemy.z
-                dist = math.sqrt(dx*dx + dz*dz)
-                # Collision radius varies by type
-                radius = 70 if isinstance(enemy, Tank) else 40
-                if dist < radius:
-                    enemy.takeDamage(20)
-                    hit = True
-                    break
-            
-            if bullet.life <= 0 or hit:
-                cls.bullets.remove(bullet)
-
-    @classmethod
-    def drawBullets(cls):
-        for bullet in cls.bullets:
-            bullet.draw()
 
     @classmethod
     def addAmmo(cls, amount):
         cls.currentAmmo = min(cls.maxAmmo, cls.currentAmmo + amount)
 
-class HealthPack:
-    def __init__(self, x, z):
+class Pickup:
+    minimapColor = (0.9, 0.3, 0.6)
+    def __init__(self, x, z, color=(1,1,1), y=50):
         self.x = x
         self.z = z
-        self.y = 50
-        self.color = (1, 1, 1) # White
-        self.crossColor = (1, 0, 0) # Red
-    
-    def draw(self):
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        angle = (time.time() * 100) % 360
-        glRotatef(angle, 0, 1, 0) # Rotate
-        
-        # Red cross
-        glColor3f(*self.crossColor)
-        # Vertical bar
-        glPushMatrix()
-        glScalef(0.25, 1.0, 0.25)
-        glutSolidCube(60)
-        glPopMatrix()
-        # Horizontal bar
-        glPushMatrix()
-        glScalef(1.0, 0.25, 0.25)
-        glutSolidCube(60)
-        glPopMatrix()
-        
-        glPopMatrix()
+        self.y = y
+        self.color = color
 
-    def apply(self, player):
-        if player.health < player.maxHealth:
-            player.heal(30)
-            return True
-        return False
-
-class ShieldPack:
-    def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 60
-        self.color = (0.2, 0.8, 1.0)
-        
-    def draw(self):
+    def draw_start(self):
         glPushMatrix()
         glTranslatef(self.x, self.y, self.z)
         angle = (time.time() * 100) % 360
         glRotatef(angle, 0, 1, 0)
-        
         glColor3f(*self.color)
-        # Single Vertical Plate
-        glScalef(0.8, 2.5, 1.8)
-        glutSolidSphere(20, 15, 15)
-        
-        glPopMatrix()
-        
-    def apply(self, player):
-        player.addImmunity(900) # 15 seconds of shield
-        return True
 
-class AmmoPack:
+    def draw_end(self):
+        glPopMatrix()
+
+    def draw(self):
+        pass
+
+    def apply(self, player):
+        return False
+
+class HealthPack(Pickup):
     def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 50
-        self.color = (0.2, 0.2, 0.2) # Dark grey
-        self.tipColor = (0.8, 0.6, 0.2) # Gold
+        super().__init__(x, z, color=(1, 1, 1))
+        self.crossColor = (1, 0, 0)
     
     def draw(self):
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        angle = (time.time() * 100) % 360
-        glRotatef(angle, 0, 1, 0) # Rotate
+        self.draw_start()
+        # Red cross
+        glColor3f(*self.crossColor)
+        glPushMatrix(); glScalef(0.25, 1.0, 0.25); glutSolidCube(60); glPopMatrix()
+        glPushMatrix(); glScalef(1.0, 0.25, 0.25); glutSolidCube(60); glPopMatrix()
+        self.draw_end()
+
+    def apply(self, player):
+        if player.health < player.maxHealth:
+            player.heal(25)
+            Notifications.add("HEALTH PACK RETRIEVED (+25)")
+            return True
+        Notifications.add("HEALTH IS ALREADY FULL")
+        return False
+
+class ShieldPack(Pickup):
+    def __init__(self, x, z):
+        super().__init__(x, z, color=(0.2, 0.8, 1.0), y=60)
         
-        # Center the bullet for rotation
+    def draw(self):
+        self.draw_start()
+        glScalef(0.8, 2.5, 1.8)
+        glutSolidSphere(20, 15, 15)
+        self.draw_end()
+        
+    def apply(self, player):
+        player.addImmunity(1800)
+        Notifications.add("SHIELD PACK RETRIEVED")
+        return True
+
+class AmmoPack(Pickup):
+    def __init__(self, x, z):
+        super().__init__(x, z, color=(0.2, 0.2, 0.2))
+        self.tipColor = (0.8, 0.6, 0.2)
+    
+    def draw(self):
+        self.draw_start()
         glTranslatef(0, 0, -35) 
-        
-        # Back Casing half
-        glColor3f(*self.color)
         gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
+        glPushMatrix(); glScalef(1.0, 1.0, 0.3); glutSolidSphere(15, 10, 10); glPopMatrix()
         
-        # Close the bottom of the casing with a sphere cap
-        glPushMatrix()
-        glScalef(1.0, 1.0, 0.3) # Flatten the sphere into a cap
-        glutSolidSphere(15, 10, 10)
-        glPopMatrix()
-        
-        # Front Casing half (Same as tip color)
         glTranslatef(0, 0, 25)
         glColor3f(*self.tipColor) 
         gluCylinder(gluNewQuadric(), 15, 15, 25, 10, 10)
-
-        # Bullet tip
         glTranslatef(0, 0, 25)
-        glColor3f(*self.tipColor)
         gluCylinder(gluNewQuadric(), 15, 0, 20, 10, 10)
-        
-        glPopMatrix()
+        self.draw_end()
 
     def apply(self, player):
         if Gun.currentAmmo < Gun.maxAmmo:
             Gun.addAmmo(10)
+            Notifications.add("AMMO PACK RETRIEVED (+10)")
             return True
+        Notifications.add("AMMO CAPACITY FULL")
         return False
+
+class FoodPack(Pickup):
+    def __init__(self, x, z):
+        super().__init__(x, z, color=(0.2, 0.8, 0.2))
+    
+    def draw(self):
+        self.draw_start()
+        glutSolidSphere(25, 12, 12)
+        self.draw_end()
+
+    def apply(self, player):
+        player.addFood(1)
+        Notifications.add("BIOMASS PACK RETRIEVED")
+        return True
+
+
 
 class Enemy:
     def __init__(self, x, z, health, speed, color):
@@ -665,7 +889,6 @@ class Enemy:
         self.maxHealth = health
         self.speed = speed
         self.color = color
-        self.isAlive = True
         
         # AI State
         self.state = "PATROL" # PATROL, CHASE, ATTACK
@@ -713,10 +936,15 @@ class Enemy:
         dz = Player.z - self.z
         dist = math.sqrt(dx*dx + dz*dz)
 
+        # Difficulty Scaling
+        diff = DayNightManager.getDifficulty()
+        scaledSpeed = min(self.speed * (1 + diff * 0.1), self.speed * 2.5)
+        scaledRange = min(self.detectionRange * (1 + diff * 0.05), 1800)
+
         # State Transitions
         if dist < self.attackRange:
             self.state = "ATTACK"
-        elif dist < self.detectionRange:
+        elif dist < scaledRange:
             self.state = "CHASE"
         else:
             self.state = "PATROL"
@@ -729,8 +957,8 @@ class Enemy:
                 self.patrolDir = [random.uniform(-1, 1), random.uniform(-1, 1)]
                 self.patrolTimer = random.randint(60, 120)
             
-            nextX += self.patrolDir[0] * (self.speed * 0.5)
-            nextZ += self.patrolDir[1] * (self.speed * 0.5)
+            nextX += self.patrolDir[0] * (scaledSpeed * 0.5)
+            nextZ += self.patrolDir[1] * (scaledSpeed * 0.5)
             self.angle = math.degrees(math.atan2(self.patrolDir[0], self.patrolDir[1]))
 
         elif self.state == "CHASE":
@@ -738,8 +966,8 @@ class Enemy:
             angleDiff = (targetAngle - self.angle + 180) % 360 - 180
             self.angle += angleDiff * 0.05
             rad = math.radians(self.angle)
-            nextX += self.speed * math.sin(rad)
-            nextZ += self.speed * math.cos(rad)
+            nextX += scaledSpeed * math.sin(rad)
+            nextZ += scaledSpeed * math.cos(rad)
 
         elif self.state == "ATTACK":
             self.performAttack(dist)
@@ -768,15 +996,6 @@ class Enemy:
 
     def takeDamage(self, amount):
         self.health -= amount
-        if self.health <= 0:
-            self.isAlive = False
-            self.dropLoot()
-
-    def dropLoot(self):
-        tile = Floor.getTile(self.x, self.z)
-        if tile and tile.object is None:
-            pickup = random.choice([HealthPack, AmmoPack, FoodPack])
-            tile.spawnObject(pickup)
 
 class Mutant(Enemy):
     def __init__(self, x, z):
@@ -860,7 +1079,7 @@ class Tank(Enemy):
             muzzleZ = self.z + 80 * math.cos(rad)
             
             # Tank fires heavy shells (Bright glowing orange/gold)
-            EnemyBullet.active.append(EnemyBullet(muzzleX, 70, muzzleZ, self.angle, damage=25, scale=12, color=(1.0, 0.6, 0.0)))
+            Bullet(muzzleX, 70, muzzleZ, self.angle, damage=25, radius=12, color=(1.0, 0.6, 0.0), team="enemy")
             self.shootTimer = 150 # Slow fire rate for balance
 
     def draw(self):
@@ -894,47 +1113,6 @@ class Tank(Enemy):
         
         glPopMatrix()
 
-class EnemyBullet:
-    active = []
-    def __init__(self, x, y, z, angle, damage=5, scale=5, color=(1.0, 0.2, 0.0)):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.angle = angle
-        self.speed = 10
-        self.life = 100
-        self.damage = damage
-        self.scale = scale
-        self.color = color
-
-    def update(self):
-        rad = math.radians(self.angle)
-        self.x += self.speed * math.sin(rad)
-        self.z += self.speed * math.cos(rad)
-        self.life -= 1
-        
-        # Check tree collision
-        tile = Floor.getTile(self.x, self.z)
-        if tile and not tile.isWalkable:
-            self.life = 0
-            return
-            
-        # Collision with player
-        dx = self.x - Player.x
-        dz = self.z - Player.z
-        if math.sqrt(dx*dx + dz*dz) < 40 and abs(self.y - 50) < 50:
-            if Player.immunity <= 0:
-                if Player.mode == "human": Player.health -= self.damage
-                else: Player.saucerHealth -= self.damage
-            self.life = 0
-
-    def draw(self):
-        glColor3f(*self.color)
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        glutSolidSphere(self.scale, 8, 8)
-        glPopMatrix()
-
 class Shooter(Enemy):
     def __init__(self, x, z):
         super().__init__(x, z, health=40, speed=3.0, color=(0.6, 0.2, 0.2))
@@ -949,7 +1127,7 @@ class Shooter(Enemy):
         
         self.shootTimer -= 1
         if self.shootTimer <= 0:
-            EnemyBullet.active.append(EnemyBullet(self.x, 60, self.z, self.angle))
+            Bullet(self.x, 60, self.z, self.angle, damage=5, team="enemy")
             self.shootTimer = 60
 
     def draw(self):
@@ -986,63 +1164,44 @@ class EnemyManager:
             e.update()
             if e.health <= 0:
                 cls.enemies.remove(e)
-                # Fun Drop Rates!
-                roll = random.random()
-                if roll < 0.30: # 30% chance to drop something
-                    # Key chance based on enemy difficulty
-                    keyRoll = random.random()
-                    keyChance = 0.01 # Mutant/Wanderer
-                    if hasattr(e, 'type'):
-                        if e.type == "shooter": keyChance = 0.08
-                        elif e.type == "tank": keyChance = 0.20
-                    
-                    if keyRoll < keyChance:
-                        item = Key
-                    else:
-                        # Other items
-                        otherRoll = random.random()
-                        if otherRoll < 0.50: item = AmmoPack
-                        elif otherRoll < 0.85: item = FoodPack
-                        else: item = ShieldPack
-                    
-                    # Spawn item at enemy's location
+                # Tank guaranteed loot
+                if isinstance(e, Tank):
                     tile = Floor.getTile(e.x, e.z)
-                    if tile:
+                    if tile and tile.object is None:
+                        item = Key if random.random() < 0.5 else ShieldPack
                         tile.spawnObject(item)
-        
-        # Update enemy bullets
-        for b in EnemyBullet.active[:]:
-            b.update()
-            if b.life <= 0: EnemyBullet.active.remove(b)
-                
+                        Notifications.add("TANK DESTROYED: LOOT DROPPED")
+                else:
+                    # Fun Drop Rates for others
+                    roll = random.random()
+                    if roll < 0.30: # 30% chance to drop something
+                        # Key chance based on enemy difficulty
+                        keyRoll = random.random()
+                        keyChance = 0.01 # Mutant/Wanderer
+                        if isinstance(e, Shooter): keyChance = 0.08
+                        
+                        if keyRoll < keyChance:
+                            item = Key
+                        else:
+                            # Other items
+                            otherRoll = random.random()
+                            if otherRoll < 0.50: item = AmmoPack
+                            elif otherRoll < 0.85: item = FoodPack
+                            else: item = ShieldPack
+                        
+                        # Spawn item at enemy's location
+                        tile = Floor.getTile(e.x, e.z)
+                        if tile:
+                            tile.spawnObject(item)
+                            Notifications.add(f"ENEMY DROPPED {item.__name__.upper()}")
+
     @classmethod
     def draw(cls):
         for enemy in cls.enemies:
             enemy.draw()
-        for b in EnemyBullet.active:
-            b.draw()
-
-class FoodPack:
-    def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 50
-        self.color = (0.2, 0.8, 0.2) # Green
-    
-    def draw(self):
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        angle = (time.time() * 100) % 360
-        glRotatef(angle, 0, 1, 0) # Rotate
-        glColor3f(*self.color)
-        glutSolidSphere(25, 12, 12)
-        glPopMatrix()
-
-    def apply(self, player):
-        player.addFood(1)
-        return True
 
 class Spaceship:
+    minimapColor = (0.5, 0.0, 0.7)
     def __init__(self, x, z, health=None):
         self.x = x
         self.z = z
@@ -1178,14 +1337,14 @@ class UIManager:
         
         # Draw color previews
         cls.drawText(Window.width - 300, Window.height - 150, "BODY COLOR")
-        glColor3f(*Player.bodyColor)
+        glColor3f(*PlayerRenderer.bodyColor)
         glBegin(GL_QUADS)
         glVertex2f(Window.width - 300, Window.height - 200); glVertex2f(Window.width - 200, Window.height - 200)
         glVertex2f(Window.width - 200, Window.height - 240); glVertex2f(Window.width - 300, Window.height - 240)
         glEnd()
         
         cls.drawText(Window.width - 300, Window.height - 280, "LEG COLOR")
-        glColor3f(*Player.legColor)
+        glColor3f(*PlayerRenderer.legColor)
         glBegin(GL_QUADS)
         glVertex2f(Window.width - 300, Window.height - 330); glVertex2f(Window.width - 200, Window.height - 330)
         glVertex2f(Window.width - 200, Window.height - 370); glVertex2f(Window.width - 300, Window.height - 370)
@@ -1230,18 +1389,10 @@ class UIManager:
             for j, c in enumerate(cRange):
                 if 0 <= r < rows and 0 <= c < cols:
                     tile = w.tiles[r][c]
-                    color = (0.35, 0.35, 0.35) # Default Grey
-                    
-                    if isinstance(tile, TreeTile): color = (0.05, 0.15, 0.05)
-                    elif isinstance(tile, AcidTile): color = (0.2, 0.8, 0.2)
-                    elif isinstance(tile, WaterTile): color = (0.0, 0.4, 0.7)
-                    elif isinstance(tile, PortalTile): color = (0.8, 0.8, 0.0)
+                    color = tile.minimapColor
                     
                     if tile.object:
-                        obj = tile.object
-                        if isinstance(obj, Chest): color = (0.4, 0.2, 0.1)
-                        elif isinstance(obj, Spaceship): color = (0.5, 0.0, 0.7)
-                        elif isinstance(obj, (HealthPack, AmmoPack, FoodPack, ShieldPack, Key)): color = (0.9, 0.3, 0.6)
+                        color = getattr(tile.object, 'minimapColor', color)
                     
                     glColor3f(*color)
                     glBegin(GL_QUADS)
@@ -1306,7 +1457,7 @@ class UIManager:
         # Food
         foodLimit = 10
         foodProgress = min(1.0, Player.food / foodLimit)
-        cls.drawText(20, Window.height - 90, "VITAMINS", (0.2, 0.9, 0.2))
+        cls.drawText(20, Window.height - 90, "BIOMASS RESERVE", (0.2, 0.9, 0.2))
         cls.drawBar(20, Window.height - 110, 200, 10, foodProgress, (0.1, 0.8, 0.1))
         
         # Shield / Immunity (Only if active)
@@ -1360,6 +1511,9 @@ class UIManager:
             cls.drawBar(bx, by, barWidth, barHeight, progress, (0.7, 0.7, 0.1))
             cls.drawText(bx + barWidth + 10, by, "PRESS [Q] TO LEAVE EARLY", (0.6, 0.6, 0.6))
 
+        # Notifications
+        Notifications.draw()
+
     @classmethod
     def drawPause(cls):
         cls.drawHUD() # Draw gameplay HUD behind
@@ -1377,92 +1531,75 @@ class UIManager:
         cls.drawText(Window.width//2 - 80, Window.height//2 + 20, "GAME OVER", (1, 0, 0))
         cls.drawText(Window.width//2 - 100, Window.height//2 - 30, "PRESS R TO RESTART", (1, 1, 1))
 
-class Key:
+class Key(Pickup):
     def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 50
-        self.color = (0.8, 0.6, 0.2) # Gold
+        super().__init__(x, z, color=(0.8, 0.6, 0.2)) # Gold
     
     def draw(self):
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        angle = (time.time() * 100) % 360
-        glRotatef(angle, 0, 1, 0)
-        
-        glColor3f(*self.color)
-        
-        # Shaft (Horizontal)
-        glPushMatrix()
-        glTranslatef(0, 0, -10) # Center the 40-unit shaft (partially)
-        glScalef(0.2, 0.2, 1.0)
-        glutSolidCube(40)
-        glPopMatrix()
-        
-        # Ring (Bow)
-        glPushMatrix()
-        glTranslatef(0, 0, 15)
-        glutSolidSphere(8, 10, 10)
-        glPopMatrix()
-        
-        glPopMatrix()
+        self.draw_start()
+        # Shaft
+        glPushMatrix(); glTranslatef(0, 0, -10); glScalef(0.2, 0.2, 1.0); glutSolidCube(40); glPopMatrix()
+        # Ring
+        glPushMatrix(); glTranslatef(0, 0, 15); glutSolidSphere(8, 10, 10); glPopMatrix()
+        self.draw_end()
 
     def apply(self, player):
         player.keys += 1
+        Notifications.add("ACCESS KEY RETRIEVED")
         return True
 
-class Chest:
+class Chest(Pickup):
+    minimapColor = (0.4, 0.2, 0.1)
     def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 50
-        self.color = (0.4, 0.2, 0.1) # Brown
-        self.lockColor = (0.8, 0.6, 0.2) # Gold
+        super().__init__(x, z, color=(0.4, 0.2, 0.1))
+        self.lockColor = (0.8, 0.6, 0.2)
     
     def draw(self):
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        angle = (time.time() * 100) % 360
-        glRotatef(angle, 0, 1, 0)
-        
-        # Chest Body (Wider)
-        glColor3f(*self.color)
-        glPushMatrix()
-        glScalef(1.5, 1.0, 1.0)
-        glutSolidCube(40)
-        glPopMatrix()
-        
+        self.draw_start()
+        # Chest Body
+        glPushMatrix(); glScalef(1.5, 1.0, 1.0); glutSolidCube(40); glPopMatrix()
         # Lock
-        glPushMatrix()
-        glTranslatef(0, 0, 20)
-        glColor3f(*self.lockColor)
-        glutSolidCube(8)
-        glPopMatrix()
-        
-        glPopMatrix()
+        glPushMatrix(); glTranslatef(0, 0, 20); glColor3f(*self.lockColor); glutSolidCube(8); glPopMatrix()
+        self.draw_end()
 
     def apply(self, player):
         if player.useKey():
-            # Grant Immunity
             player.addImmunity(600)
+            options = []
+            if player.health < player.maxHealth: options.append('hp')
+            if Gun.currentAmmo < Gun.maxAmmo: options.append('ammo')
+            options.extend(['food', 'shield']) # Always valid backups
             
-            # Random reward
-            reward = random.choice(['hp', 'ammo', 'food', 'shield'])
-            if reward == 'hp': player.heal(35)
-            elif reward == 'ammo': Gun.currentAmmo += 20
-            elif reward == 'food': player.addFood(3)
-            elif reward == 'shield': player.addImmunity(1800) # 30s shield
+            reward = random.choice(options)
+            if reward == 'hp': 
+                player.heal(50)
+                Notifications.add("CHEST REWARD: HEALTH REPLENISHED")
+            elif reward == 'ammo': 
+                Gun.currentAmmo = min(Gun.maxAmmo, Gun.currentAmmo + 20)
+                Notifications.add("CHEST REWARD: AMMO RESTOCKED")
+            elif reward == 'food': 
+                player.addFood(3)
+                Notifications.add("CHEST REWARD: BIOMASS BOOST")
+            elif reward == 'shield': 
+                player.addImmunity(1800)
+                Notifications.add("CHEST REWARD: SHIELD OVERCHARGE")
             
-            # Spawn a new chest elsewhere in the wasteland
             Game.spawnNewChest()
-            
             return True
+        Notifications.add("CHEST IS LOCKED: REQUIRES ACCESS KEY")
         return False
 
 class Game:
-    DelayedActions = []
-    Bombs = []
-    Explosions = []
+    delayedActions = []
+    bombs = []
+    explosions = []
+    bullets = []
+
+    @classmethod
+    def init(cls):
+        Floor.homebase = Homebase(6, 6)
+        Floor.wasteland = Wasteland(40, 40)
+        Floor.current = Floor.wasteland
 
     @classmethod
     def restart(cls):
@@ -1478,33 +1615,49 @@ class Game:
         
         # Reset Equipment
         Gun.currentAmmo = 20
-        Gun.activeBullets = []
-        EnemyBullet.active = []
+        cls.bullets = []
         
         # Reset DayNight
         DayNightManager.dayCount = 1
         DayNightManager.startTime = time.time()
         DayNightManager._lastCycle = 0
+        DayNightManager.lastVisitedDay = 1
         
         # Reset Entities
         EnemyManager.enemies = []
-        cls.Bombs = []
-        cls.Explosions = []
-        cls.DelayedActions = []
+        cls.bombs = []
+        cls.explosions = []
+        cls.delayedActions = []
         
         # Regenerate World
-        Floor.current = Wasteland(40, 40)
+        PortalTile.isActive = True
+        Floor.homebase = Homebase(6, 6)
+        Floor.wasteland = Wasteland(40, 40)
+        Floor.current = Floor.wasteland
         
         GameState.current = GameState.PLAY
 
     @classmethod
     def update(cls):
-        for d in cls.DelayedActions[:]: d.update()
+        for d in cls.delayedActions[:]: d.update()
+        
+        if GameState.current == GameState.PLAY:
+            if Player.immunity > 0:
+                Player.immunity -= 1
+            
+            # Mandatory Homebase Visit Check
+            if Floor.current != Floor.homebase:
+                if DayNightManager.dayCount > DayNightManager.lastVisitedDay + 1:
+                    Player.health = 0
+                    Notifications.add("CRITICAL FAILURE: MISSED MANDATORY DEPLOYMENT")
         
         if Floor.current == Floor.wasteland:
-            for b in cls.Bombs[:]: b.update()
-            for e in cls.Explosions[:]: e.update()
-            Gun.updateBullets()
+            for b in cls.bombs[:]: b.update()
+            for e in cls.explosions[:]: e.update()
+            for bullet in cls.bullets[:]:
+                bullet.update()
+                if bullet.life <= 0:
+                    cls.bullets.remove(bullet)
             EnemyManager.update()
             
         if Player.mode == "spaceship" and Player.saucerHealth <= 0:
@@ -1556,15 +1709,16 @@ class Game:
     def spawnRandomBomb(cls):
         # Pick a random walkable tile in the current floor
         tiles = Floor.current.tiles
-        r = random.randint(0, len(tiles)-1)
-        c = random.randint(0, len(tiles[0])-1)
-        targetTile = tiles[r][c]
-        
-        if targetTile.isWalkable:
-            Bomb(targetTile.x, targetTile.z)
-        else:
-            # Try once more if we hit a tree
-            cls.spawnRandomBomb()
+        rows = len(tiles)
+        cols = len(tiles[0])
+        for _ in range(10): # Guard against infinite loop
+            r = random.randint(0, rows-1)
+            c = random.randint(0, cols-1)
+            targetTile = tiles[r][c]
+            
+            if targetTile.isWalkable:
+                Bomb(targetTile.x, targetTile.z)
+                break
     
 class GameState:
     MENU = 0
@@ -1574,7 +1728,6 @@ class GameState:
     GAMEOVER = 4
     
     current = MENU
-    inHomebase = False
 
 class Tileset:
     def __init__(self, rows, columns, tile):
@@ -1657,7 +1810,6 @@ class Homebase(Tileset):
     homeDuration = 15
     originPortal = None
     enterTime = None
-    cooldownStart = None
 
     def __init__(self, rows, columns):
         super().__init__(rows, columns, HomeTile)
@@ -1668,6 +1820,13 @@ class Homebase(Tileset):
         self.enterTime = time.time()
         Player.x = 0
         Player.z = 0
+        
+        # Refills
+        Player.health = Player.maxHealth
+        Gun.currentAmmo = Gun.maxAmmo
+        DayNightManager.lastVisitedDay = DayNightManager.dayCount
+        
+        Notifications.add("HOMEBASE ACCESSED: GEAR RESTOCKED & HEALTH RESTORED")
         DelayedAction(self.homeDuration, self.exit)
     
     def exit(self):
@@ -1712,147 +1871,10 @@ class Wasteland(Tileset):
         self.spawnObject(*self.spaceshipPosition, Spaceship)
         self.spawnObject(*self.chestPosition, Chest)
 
-class Explosion:
-    def __init__(self, x, z, affectedTiles, maxRadius=350):
-        self.x = x
-        self.z = z
-        self.y = 50
-        self.affectedTiles = affectedTiles
-        self.currentRadius = 0
-        self.maxRadius = maxRadius
-        self.growthSpeed = 15
-        self.isFinished = False
-        Game.Explosions.append(self)
-
-    def update(self):
-        self.currentRadius += self.growthSpeed
-        if self.currentRadius >= self.maxRadius:
-            self.dealDamage()
-            self.isFinished = True
-            Game.Explosions.remove(self)
-
-    def dealDamage(self):
-        # Damage Player if they are on a blinking tile
-        playerTile = Floor.getTile(Player.x, Player.z)
-        if playerTile in self.affectedTiles:
-            damage = 50
-            if Player.mode == "human": Player.health -= damage
-            else: Player.saucerHealth -= damage
-        
-        # Damage Enemies if they are on a blinking tile
-        for enemy in EnemyManager.enemies[:]:
-            enemyTile = Floor.getTile(enemy.x, enemy.z)
-            if enemyTile in self.affectedTiles:
-                enemy.takeDamage(100)
-
-    def draw(self):
-        # Flashy colors
-        pulse = (math.sin(time.time() * 25) + 1) / 2
-        r = 1.0
-        g = 0.2 + 0.6 * pulse
-        b = 0.0
-        
-        glColor3f(r, g, b)
-        
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        glutSolidSphere(self.currentRadius, 32, 32)
-        
-        # Inner core
-        glColor3f(1, 1, 1)
-        glutSolidSphere(self.currentRadius * 0.6, 20, 20)
-        
-        glPopMatrix()
-
-class Bomb:
-    def __init__(self, x, z):
-        self.x = x
-        self.z = z
-        self.y = 1000 # Start in the sky
-        self.groundY = 30
-        self.isFalling = True
-        self.fallSpeed = 25
-        
-        self.fuseTime = 2.0
-        self.startTime = None # Starts after landing
-        self.blinkSpeed = 0.15
-        self.affectedTiles = []
-        tile = Floor.getTile(x, z)
-        if tile:
-            self.affectedTiles = Floor.current.getAdjacentTiles(tile)
-            self.affectedTiles.append(tile)
-        Game.Bombs.append(self)
-
-    def update(self):
-        if self.isFalling:
-            self.y -= self.fallSpeed
-            if self.y <= self.groundY:
-                self.y = self.groundY
-                self.isFalling = False
-                self.startTime = time.time()
-            return
-
-        elapsed = time.time() - self.startTime
-        if elapsed >= self.fuseTime:
-            Explosion(self.x, self.z, self.affectedTiles)
-            Game.Bombs.remove(self)
-
-    def draw(self):
-        isBlinkOn = False
-        elapsed = 0
-        
-        if not self.isFalling and self.startTime:
-            elapsed = time.time() - self.startTime
-            isBlinkOn = (int(elapsed / self.blinkSpeed) % 2) == 0
-        
-        # Draw blinking highlights on tiles (only after landing)
-        if not self.isFalling and isBlinkOn:
-            for tile in self.affectedTiles:
-                # Grab the tile color and maximize the red component
-                blinkColor = (1.0, tile.color[1], tile.color[2])
-                glColor3f(*blinkColor)
-                
-                startX = tile.x - tile.length/2
-                endX = startX + tile.length
-                startZ = tile.z - tile.width/2
-                endZ = startZ + tile.width
-                
-                glBegin(GL_QUADS)
-                glVertex3f(startX, 2, startZ)
-                glVertex3f(endX, 2, startZ)
-                glVertex3f(endX, 2, endZ)
-                glVertex3f(startX, 2, endZ)
-                glEnd()
-
-        # Draw the bomb itself
-        glPushMatrix()
-        glTranslatef(self.x, self.y, self.z)
-        
-        # Pulsing scale during fuse
-        scale = 1.0
-        if not self.isFalling:
-            scale = 1.0 + (elapsed / self.fuseTime) * 0.7 if isBlinkOn else 1.0
-        glScalef(scale, scale, scale)
-        
-        glColor3f(0.1, 0.1, 0.1) # Black
-        glutSolidSphere(20, 15, 15)
-        
-        # Fuse spark (only after landing)
-        if not self.isFalling and isBlinkOn:
-            glColor3f(1, 1, 0)
-            glPushMatrix()
-            glTranslatef(0, 20, 0)
-            glutSolidSphere(5, 8, 8)
-            glPopMatrix()
-            
-        glPopMatrix()
-
-
-
 class Floor:
-    homebase = Homebase(6, 6)
-    wasteland = Wasteland(40, 40)
-    current = wasteland
+    homebase = None
+    wasteland = None
+    current = None
     
     @classmethod
     def draw(cls): 
@@ -1868,6 +1890,7 @@ class DayNightManager:
     phaseDuration = 30
     startTime = time.time()
     dayCount = 1
+    lastVisitedDay = 1
     _lastCycle = 0
 
     @classmethod
@@ -1924,17 +1947,27 @@ def keyboardListener(key, x, y):
             GameState.current = GameState.PLAY
         elif key == b'1': # Cycle body color
             colors = [(0.5, 0.1, 0.18), (0.1, 0.5, 0.18), (0.1, 0.18, 0.5), (0.8, 0.8, 0.1)]
-            current_tuple = tuple(Player.bodyColor)
-            idx = (colors.index(current_tuple) + 1) % len(colors) if current_tuple in colors else 0
-            Player.bodyColor = list(colors[idx])
+            currentTuple = tuple(PlayerRenderer.bodyColor)
+            idx = (colors.index(currentTuple) + 1) % len(colors) if currentTuple in colors else 0
+            PlayerRenderer.bodyColor = list(colors[idx])
         elif key == b'2': # Cycle leg color
             colors = [(0.08, 0.12, 0.35), (0.35, 0.12, 0.08), (0.12, 0.35, 0.08), (0.5, 0.5, 0.5)]
-            current_tuple = tuple(Player.legColor)
-            idx = (colors.index(current_tuple) + 1) % len(colors) if current_tuple in colors else 0
-            Player.legColor = list(colors[idx])
+            currentTuple = tuple(PlayerRenderer.legColor)
+            idx = (colors.index(currentTuple) + 1) % len(colors) if currentTuple in colors else 0
+            PlayerRenderer.legColor = list(colors[idx])
         return
 
     if GameState.current == GameState.PLAY:
+        if Debug.enabled:
+            if key == b'1': Debug.fullHealth(); return
+            if key == b'2': Debug.fullAmmo(); return
+            if key == b'3': Debug.addKey(); return
+            if key == b'4': Debug.spawnAllEnemies(); return
+            if key == b'5': Debug.spawnAllItems(); return
+            if key == b'6': Debug.enterSpaceship(); return
+            if key == b'7': Debug.skipToNight(); return
+            if key == b'8': Debug.triggerChestReward(); return
+
         if key == b'w': Player.moveForward()
         if key == b's': Player.moveBackward()
         if key == b'a': Player.turnLeft()
@@ -1948,6 +1981,7 @@ def keyboardListener(key, x, y):
         if key == b'm' or key == b'M': UIManager.minimapZoomedIn = not UIManager.minimapZoomedIn
         if key == b'=': Camera.radius += 5
         if key == b'-': Camera.radius -= 5
+        if key == b'`': Debug.toggle()
         return
 
     if GameState.current == GameState.PAUSE:
@@ -1994,15 +2028,11 @@ def display():
         Floor.draw()
         Player.draw()
         if Floor.current == Floor.wasteland:
-            Gun.drawBullets()
+            for b in Game.bullets:
+                b.draw()
             EnemyManager.draw()
-            for b in Game.Bombs: b.draw()
-            for e in Game.Explosions: e.draw()
-
-    # Update survival logic (only during play)
-    if GameState.current == GameState.PLAY:
-        if Player.immunity > 0:
-            Player.immunity -= 1
+            for b in Game.bombs: b.draw()
+            for e in Game.explosions: e.draw()
 
     UIManager.draw()
     glutSwapBuffers()
@@ -2019,14 +2049,5 @@ glutKeyboardFunc(keyboardListener)
 glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
-Floor.wasteland = Wasteland(40, 40)
-Floor.current = Floor.wasteland
-
-# TEST SP AWNS - DELETE LATER
-Floor.getTile(300, 300).spawnObject(HealthPack)
-Floor.getTile(-300, 300).spawnObject(AmmoPack)
-Floor.getTile(300, -300).spawnObject(FoodPack)
-Floor.getTile(-300, -300).spawnObject(Key)
-Floor.getTile(0, 300).spawnObject(ShieldPack)
-
+Game.init()
 glutMainLoop()
