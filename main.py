@@ -62,6 +62,7 @@ class Tile:
         self.z = z
         self.object = None
         self.color = (1, 1, 1)
+        self.isWalkable = True
 
     def draw(self):
         startX = self.x - self.length/2
@@ -157,6 +158,42 @@ class HomeTile(Tile):
 
     def draw(self):
         super().draw()
+
+class TreeTile(WastelandTile):
+    def __init__(self, x, z):
+        super().__init__(x, z)
+        self.isWalkable = False
+        self.trunkColor = (0.35, 0.25, 0.15)
+        self.leafColor = (0.1, 0.4, 0.1)
+        self.height = random.uniform(400, 700)
+        self.thickness = random.uniform(60, 85)
+
+    def draw(self):
+        super().draw() # Draw wasteland base
+        
+        glPushMatrix()
+        glTranslatef(self.x, 0, self.z)
+        
+        # Trunk
+        glColor3f(*self.trunkColor)
+        glPushMatrix()
+        glTranslatef(0, self.height/2, 0)
+        glScalef(self.thickness, self.height, self.thickness)
+        glutSolidCube(1)
+        glPopMatrix()
+        
+        # Canopy (Leaves)
+        glColor3f(*self.leafColor)
+        glPushMatrix()
+        glTranslatef(0, self.height, 0)
+        # Main sphere
+        glutSolidSphere(self.thickness * 2.5, 10, 10)
+        # Side spheres for organic look
+        glPushMatrix(); glTranslatef(15, -10, 10); glutSolidSphere(self.thickness * 1.5, 8, 8); glPopMatrix()
+        glPushMatrix(); glTranslatef(-15, -10, -10); glutSolidSphere(self.thickness * 1.5, 8, 8); glPopMatrix()
+        glPopMatrix()
+        
+        glPopMatrix()
 
 class Player:
     headRadius = 25
@@ -352,15 +389,29 @@ class Player:
     def moveForward(cls):
         speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x + speed * math.sin(rad)
-        cls.z = cls.z + speed * math.cos(rad)
+        nextX = cls.x + speed * math.sin(rad)
+        nextZ = cls.z + speed * math.cos(rad)
+        
+        targetTile = Floor.getTile(nextX, nextZ)
+        if targetTile and not targetTile.isWalkable:
+            return
+            
+        cls.x = nextX
+        cls.z = nextZ
 
     @classmethod
     def moveBackward(cls):
         speed = cls.walkSpeed if cls.mode == "human" else cls.saucerSpeed
         rad = math.radians(cls.angle)
-        cls.x = cls.x - speed * math.sin(rad)
-        cls.z = cls.z - speed * math.cos(rad)
+        nextX = cls.x - speed * math.sin(rad)
+        nextZ = cls.z - speed * math.cos(rad)
+        
+        targetTile = Floor.getTile(nextX, nextZ)
+        if targetTile and not targetTile.isWalkable:
+            return
+
+        cls.x = nextX
+        cls.z = nextZ
 
     @classmethod
     def turnLeft(cls):
@@ -611,14 +662,16 @@ class Enemy:
         else:
             self.state = "PATROL"
 
+        nextX, nextZ = self.x, self.z
+
         if self.state == "PATROL":
             self.patrolTimer -= 1
             if self.patrolTimer <= 0:
                 self.patrolDir = [random.uniform(-1, 1), random.uniform(-1, 1)]
                 self.patrolTimer = random.randint(60, 120)
             
-            self.x += self.patrolDir[0] * (self.speed * 0.5)
-            self.z += self.patrolDir[1] * (self.speed * 0.5)
+            nextX += self.patrolDir[0] * (self.speed * 0.5)
+            nextZ += self.patrolDir[1] * (self.speed * 0.5)
             self.angle = math.degrees(math.atan2(self.patrolDir[0], self.patrolDir[1]))
 
         elif self.state == "CHASE":
@@ -626,11 +679,21 @@ class Enemy:
             angleDiff = (targetAngle - self.angle + 180) % 360 - 180
             self.angle += angleDiff * 0.05
             rad = math.radians(self.angle)
-            self.x += self.speed * math.sin(rad)
-            self.z += self.speed * math.cos(rad)
+            nextX += self.speed * math.sin(rad)
+            nextZ += self.speed * math.cos(rad)
 
         elif self.state == "ATTACK":
             self.performAttack(dist)
+            return # No movement in attack state for base enemy
+
+        # Collision check
+        targetTile = Floor.getTile(nextX, nextZ)
+        if targetTile and not targetTile.isWalkable:
+            if self.state == "PATROL":
+                self.patrolTimer = 0 # Redirect on collision
+            return
+            
+        self.x, self.z = nextX, nextZ
 
     def performAttack(self, dist):
         # Default melee damage
@@ -1192,6 +1255,7 @@ class Wasteland(Tileset):
 
         self.acidPositions = []
         self.waterPositions = []
+        self.treePositions = []
         
         acidTileCount = int(rows * columns * 0.1)
         for t in range(acidTileCount):
@@ -1201,12 +1265,17 @@ class Wasteland(Tileset):
         for t in range(waterTileCount):
             self.waterPositions.append(self.popRandomPosition())
 
+        treeTileCount = random.randint(10, 20)
+        for t in range(treeTileCount):
+            self.treePositions.append(self.popRandomPosition())
+
         self.portalPosition = self.popRandomPosition()
         self.spaceshipPosition = self.popRandomPosition()
         self.chestPosition = self.popRandomPosition()
 
         for r, c in self.waterPositions: self.changeTile(r, c, WaterTile)
         for r, c in self.acidPositions: self.changeTile(r, c, AcidTile)
+        for r, c in self.treePositions: self.changeTile(r, c, TreeTile)
 
         self.changeTile(*self.portalPosition, PortalTile)
         self.spawnObject(*self.spaceshipPosition, Spaceship)
@@ -1351,7 +1420,7 @@ class Bomb:
 
 class Floor:
     homebase = Homebase(6, 6)
-    wasteland = Wasteland(50, 50)
+    wasteland = Wasteland(40, 40)
     current = wasteland
     
     @classmethod
