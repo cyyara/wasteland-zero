@@ -245,7 +245,25 @@ class Player:
     @classmethod
     def exitSpaceship(cls):
         if cls.mode == "spaceship":
-            cls.mode = "human"
+            currentTile = Floor.getTile(cls.x, cls.z)
+            if not currentTile: return
+            
+            # Find adjacent walkable tile for the vessel
+            adj = Floor.wasteland.getAdjacentTiles(currentTile)
+            targetTile = None
+            for t in adj:
+                if t.isWalkable and t.object is None:
+                    targetTile = t
+                    break
+                
+            if targetTile:
+                targetTile.spawnObject(lambda x, z: Spaceship(x, z, health=cls.saucerHealth))
+                # Sync with wasteland positions
+                col = int((targetTile.x - Floor.wasteland.startX) / Tile.length)
+                row = int((targetTile.z - Floor.wasteland.startZ) / Tile.width)
+                if (row, col) in Floor.wasteland.positions:
+                    Floor.wasteland.positions.remove((row, col))
+                cls.mode = "human"
 
     # Tunable render settings
     legColor = [0.08, 0.12, 0.35]
@@ -397,6 +415,9 @@ class Player:
         nextX = cls.x + speed * math.sin(rad)
         nextZ = cls.z + speed * math.cos(rad)
         
+        # Clamp to floor boundary
+        nextX, nextZ = Floor.current.getClampedPosition(nextX, nextZ)
+        
         targetTile = Floor.getTile(nextX, nextZ)
         if targetTile and not targetTile.isWalkable:
             return
@@ -410,6 +431,9 @@ class Player:
         rad = math.radians(cls.angle)
         nextX = cls.x - speed * math.sin(rad)
         nextZ = cls.z - speed * math.cos(rad)
+        
+        # Clamp to floor boundary
+        nextX, nextZ = Floor.current.getClampedPosition(nextX, nextZ)
         
         targetTile = Floor.getTile(nextX, nextZ)
         if targetTile and not targetTile.isWalkable:
@@ -721,6 +745,9 @@ class Enemy:
             self.performAttack(dist)
             return # No movement in attack state for base enemy
 
+        # Clamp to floor boundary
+        nextX, nextZ = Floor.current.getClampedPosition(nextX, nextZ)
+
         # Collision check
         targetTile = Floor.getTile(nextX, nextZ)
         if targetTile and not targetTile.isWalkable:
@@ -1016,10 +1043,11 @@ class FoodPack:
         return True
 
 class Spaceship:
-    def __init__(self, x, z):
+    def __init__(self, x, z, health=None):
         self.x = x
         self.z = z
         self.y = 50
+        self.health = health if health is not None else Player.maxSaucerHealth
     
     def draw(self):
         glPushMatrix()
@@ -1056,9 +1084,19 @@ class Spaceship:
 
     def apply(self, player):
         player.mode = "spaceship"
+        player.saucerHealth = self.health
+        
+        # Put the position back in the pool
+        col = int((self.x - Floor.wasteland.startX) / Tile.length)
+        row = int((self.z - Floor.wasteland.startZ) / Tile.width)
+        pos = (row, col)
+        if pos not in Floor.wasteland.positions:
+            Floor.wasteland.positions.append(pos)
         return True
 
 class UIManager:
+    minimapZoomedIn = True
+    
     @staticmethod
     def drawText(x, y, text, color=(1, 1, 1)):
         glColor3f(*color)
@@ -1071,19 +1109,15 @@ class UIManager:
         # Background
         glColor3f(*bgColor)
         glBegin(GL_QUADS)
-        glVertex2f(x, y)
-        glVertex2f(x + width, y)
-        glVertex2f(x + width, y + height)
-        glVertex2f(x, y + height)
+        glVertex2f(x, y); glVertex2f(x + width, y)
+        glVertex2f(x + width, y + height); glVertex2f(x, y + height)
         glEnd()
 
         # Progress
         glColor3f(*barColor)
         glBegin(GL_QUADS)
-        glVertex2f(x, y)
-        glVertex2f(x + (width * progress), y)
-        glVertex2f(x + (width * progress), y + height)
-        glVertex2f(x, y + height)
+        glVertex2f(x, y); glVertex2f(x + (width * progress), y)
+        glVertex2f(x + (width * progress), y + height); glVertex2f(x, y + height)
         glEnd()
 
     @classmethod
@@ -1158,35 +1192,159 @@ class UIManager:
         glEnd()
 
     @classmethod
-    def drawHUD(cls):
-        # Draw Health Bar (Top Left)
-        hpProgress = Player.health / Player.maxHealth
-        cls.drawBar(20, Window.height - 40, 200, 20, hpProgress, (0.8, 0.1, 0.1))
-        cls.drawText(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
+    def drawMinimap(cls):
+        w = Floor.wasteland
+        rows = len(w.tiles)
+        cols = len(w.tiles[0])
+        
+        # UI Layout
+        cellSize = 8 if cls.minimapZoomedIn else 4
+        viewRadius = 7 # Number of tiles to show in each direction when zoomed
+        gridSize = (viewRadius * 2 + 1) if cls.minimapZoomedIn else cols
+        
+        mapWidth = gridSize * cellSize
+        mapHeight = gridSize * cellSize
+        offsetX = Window.width - mapWidth - 25
+        offsetY = 25
+        
+        # Minimap Background Panel
+        glColor3f(0.05, 0.05, 0.05)
+        glBegin(GL_QUADS)
+        glVertex2f(offsetX - 5, offsetY - 5); glVertex2f(offsetX + mapWidth + 5, offsetY - 5)
+        glVertex2f(offsetX + mapWidth + 5, offsetY + mapHeight + 5); glVertex2f(offsetX - 5, offsetY + mapHeight + 5)
+        glEnd()
 
-        # Draw Food Bar
+        # Get player tile indices
+        pCol = int((Player.x - w.startX) / Tile.length)
+        pRow = int((Player.z - w.startZ) / Tile.width)
+
+        # Tile range
+        if cls.minimapZoomedIn:
+            rRange = range(pRow - viewRadius, pRow + viewRadius + 1)
+            cRange = range(pCol - viewRadius, pCol + viewRadius + 1)
+        else:
+            rRange = range(rows)
+            cRange = range(cols)
+
+        for i, r in enumerate(rRange):
+            for j, c in enumerate(cRange):
+                if 0 <= r < rows and 0 <= c < cols:
+                    tile = w.tiles[r][c]
+                    color = (0.35, 0.35, 0.35) # Default Grey
+                    
+                    if isinstance(tile, TreeTile): color = (0.05, 0.15, 0.05)
+                    elif isinstance(tile, AcidTile): color = (0.2, 0.8, 0.2)
+                    elif isinstance(tile, WaterTile): color = (0.0, 0.4, 0.7)
+                    elif isinstance(tile, PortalTile): color = (0.8, 0.8, 0.0)
+                    
+                    if tile.object:
+                        obj = tile.object
+                        if isinstance(obj, Chest): color = (0.4, 0.2, 0.1)
+                        elif isinstance(obj, Spaceship): color = (0.5, 0.0, 0.7)
+                        elif isinstance(obj, (HealthPack, AmmoPack, FoodPack, ShieldPack, Key)): color = (0.9, 0.3, 0.6)
+                    
+                    glColor3f(*color)
+                    glBegin(GL_QUADS)
+                    x = offsetX + j * cellSize
+                    y = offsetY + i * cellSize
+                    glVertex2f(x, y); glVertex2f(x + cellSize, y)
+                    glVertex2f(x + cellSize, y + cellSize); glVertex2f(x, y + cellSize)
+                    glEnd()
+
+        # Entity calculations
+        def getMapPos(wx, wz):
+            if cls.minimapZoomedIn:
+                # Relative to player
+                rx = (wx - Player.x) / Tile.length
+                rz = (wz - Player.z) / Tile.width
+                mx = offsetX + (viewRadius + rx) * cellSize + cellSize/2
+                my = offsetY + (viewRadius + rz) * cellSize + cellSize/2
+                return mx, my
+            else:
+                # Global map
+                mx = offsetX + ((wx - w.startX) / (cols * Tile.length)) * mapWidth
+                my = offsetY + ((wz - w.startZ) / (rows * Tile.width)) * mapHeight
+                return mx, my
+
+        glPointSize(4 if cls.minimapZoomedIn else 3)
+        glBegin(GL_POINTS)
+        # Enemies
+        glColor3f(1.0, 0.0, 0.0)
+        for e in EnemyManager.enemies:
+            mx, my = getMapPos(e.x, e.z)
+            # Only draw if within minimap bounds
+            if offsetX <= mx <= offsetX + mapWidth and offsetY <= my <= offsetY + mapHeight:
+                glVertex2f(mx, my)
+        
+        # Player
+        glColor3f(1.0, 1.0, 1.0)
+        px, py = getMapPos(Player.x, Player.z)
+        glVertex2f(px, py)
+        glEnd()
+        
+        cls.drawText(offsetX, offsetY + mapHeight + 10, f"MAP: {'LOCAL' if cls.minimapZoomedIn else 'GLOBAL'} [M]", (0.7, 0.7, 0.7))
+
+    @classmethod
+    def drawHUD(cls):
+        # Health
+        isSpaceship = Player.mode == "spaceship"
+        if isSpaceship:
+            hpLabel = "VESSEL HP"
+            hpColor = (0.2, 0.8, 1.0)
+            hpProgress = Player.saucerHealth / Player.maxSaucerHealth
+            hpText = f"{int(Player.saucerHealth)} / {Player.maxSaucerHealth}"
+        else:
+            hpLabel = "SURVIVOR HP"
+            hpColor = (0.9, 0.1, 0.1)
+            hpProgress = Player.health / Player.maxHealth
+            hpText = f"{int(Player.health)} / {Player.maxHealth}"
+        
+        cls.drawText(20, Window.height - 35, hpLabel, (1, 0.8, 0))
+        cls.drawBar(20, Window.height - 55, 200, 15, hpProgress, hpColor)
+        cls.drawText(20, Window.height - 70, hpText, (1, 1, 1))
+
+        # Food
         foodLimit = 10
         foodProgress = min(1.0, Player.food / foodLimit)
-        cls.drawBar(20, Window.height - 90, 200, 15, foodProgress, (0.1, 0.8, 0.1))
-        cls.drawText(20, Window.height - 110, f"FOOD: {Player.food}")
+        cls.drawText(20, Window.height - 90, "VITAMINS", (0.2, 0.9, 0.2))
+        cls.drawBar(20, Window.height - 110, 200, 10, foodProgress, (0.1, 0.8, 0.1))
+        
+        # Shield / Immunity (Only if active)
+        if Player.immunity > 0:
+            shieldProgress = min(1.0, Player.immunity / 1800)
+            cls.drawText(20, Window.height - 145, "SHIELD CHARGE", (0.4, 0.6, 1.0))
+            cls.drawBar(20, Window.height - 160, 200, 8, shieldProgress, (0.2, 0.5, 1.0))
 
-        cls.drawText(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo}")
-        cls.drawText(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
-        cls.drawText(Window.width - 150, Window.height - 100, f"DAY: {DayNightManager.dayCount}")
+        # Ammo
+        ammoProgress = Gun.currentAmmo / Gun.maxAmmo
+        cls.drawText(Window.width - 200, Window.height - 35, "AMMO CAPACITY", (0.8, 0.7, 0))
+        cls.drawBar(Window.width - 200, Window.height - 55, 180, 12, ammoProgress, (0.7, 0.5, 0.1))
+        cls.drawText(Window.width - 200, Window.height - 70, f"{Gun.currentAmmo} / {Gun.maxAmmo}")
 
-        # Day/Night and Danger (Bottom Left)
+        # Keys
+        cls.drawText(Window.width - 200, Window.height - 90, f"ACCESS KEYS: {Player.keys}", (1, 1, 1))
+
+        # Day
+        cls.drawText(Window.width//2 - 40, Window.height - 40, f"DAY {DayNightManager.dayCount}", (1, 1, 1))
+
+        # Environment
         isNight, _ = DayNightManager.getPhase()
         danger = DayNightManager.getDanger()
-        dangerColor = (1, 0.2, 0) if DayNightManager.isDangerous() else (1, 0.7, 0)
+        dangerColor = (1, 0.1, 0) if DayNightManager.isDangerous() else (1, 0.6, 0)
         
-        cls.drawBar(20, 30, 200, 12, danger, dangerColor)
-        phaseText = f"{'NIGHT' if isNight else 'DAY'}"
-        cls.drawText(20, 50, f"PHASE: {phaseText}")
-        if DayNightManager.isDangerous():
-            cls.drawText(110, 50, " (HAZARDOUS)", (1, 0.1, 0))
+        phaseText = "NIGHTFALL" if isNight else "SOLAR"
+        cls.drawText(20, 55, f"PHASE: {phaseText}", (1, 1, 1))
+        cls.drawBar(20, 35, 200, 12, danger, dangerColor)
+        cls.drawText(20, 20, "DANGER LEVEL", dangerColor)
 
-        if Player.immunity > 0:
-            cls.drawText(Window.width // 2 - 50, Window.height - 40, f"SHIELD ACTIVE", (0.2, 0.8, 1.0))
+        # Context Hints
+        if isSpaceship:
+            cls.drawText(Window.width//2 - 100, 100, "PRESS [Q] TO LAND VESSEL", (1, 0.5, 0))
+        elif Player.mode == "human" and Gun.currentAmmo == 0:
+            cls.drawText(Window.width//2 - 100, 100, "OUT OF AMMO! FIND PACKS", (1, 0, 0))
+
+        if Floor.current == Floor.wasteland:
+            cls.drawMinimap()
 
     @classmethod
     def drawPause(cls):
@@ -1276,7 +1434,7 @@ class Chest:
             
             # Random reward
             reward = random.choice(['hp', 'ammo', 'food', 'shield'])
-            if reward == 'hp': player.addHealth(35)
+            if reward == 'hp': player.heal(35)
             elif reward == 'ammo': Gun.currentAmmo += 20
             elif reward == 'food': player.addFood(3)
             elif reward == 'shield': player.addImmunity(1800) # 30s shield
@@ -1328,13 +1486,19 @@ class Game:
     @classmethod
     def update(cls):
         for d in cls.DelayedActions[:]: d.update()
-        for b in cls.Bombs[:]: b.update()
-        for e in cls.Explosions[:]: e.update()
-        Player.triggerTile()
-        Gun.updateBullets()
-        EnemyManager.update()
         
-        if GameState.current == GameState.PLAY:
+        if Floor.current == Floor.wasteland:
+            for b in cls.Bombs[:]: b.update()
+            for e in cls.Explosions[:]: e.update()
+            Gun.updateBullets()
+            EnemyManager.update()
+            
+        if Player.mode == "spaceship" and Player.saucerHealth <= 0:
+            Player.mode = "human"
+
+        Player.triggerTile()
+        
+        if GameState.current == GameState.PLAY and Floor.current != Floor.homebase:
             diff = DayNightManager.getDifficulty()
             
             # Random Bomb Drops
@@ -1426,6 +1590,17 @@ class Tileset:
             self.tiles.append(row)
             currentX = self.startX
             currentZ += Tile.width
+
+    def getClampedPosition(self, x, z):
+        rows = len(self.tiles)
+        cols = len(self.tiles[0])
+        # Small buffer to prevent the player from standing on the very edge
+        buffer = 15 
+        minX = self.startX + buffer
+        maxX = self.startX + (cols * Tile.length) - buffer
+        minZ = self.startZ + buffer
+        maxZ = self.startZ + (rows * Tile.width) - buffer
+        return max(minX, min(maxX, x)), max(minZ, min(maxZ, z))
 
     def getTile(self, x, z):
         col = int((x - self.startX) / Tile.length)
@@ -1751,6 +1926,7 @@ def keyboardListener(key, x, y):
         if key == b' ': Gun.shoot()
         if key == b'b': Bomb(Player.x, Player.z)
         if key == b'p': GameState.current = GameState.PAUSE
+        if key == b'm' or key == b'M': UIManager.minimapZoomedIn = not UIManager.minimapZoomedIn
         if key == b'=': Camera.radius += 5
         if key == b'-': Camera.radius -= 5
         return
@@ -1798,10 +1974,11 @@ def display():
     if GameState.current in [GameState.PLAY, GameState.PAUSE, GameState.GAMEOVER]:
         Floor.draw()
         Player.draw()
-        Gun.drawBullets()
-        EnemyManager.draw()
-        for b in Game.Bombs: b.draw()
-        for e in Game.Explosions: e.draw()
+        if Floor.current == Floor.wasteland:
+            Gun.drawBullets()
+            EnemyManager.draw()
+            for b in Game.Bombs: b.draw()
+            for e in Game.Explosions: e.draw()
 
     # Update survival logic (only during play)
     if GameState.current == GameState.PLAY:
