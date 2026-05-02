@@ -31,7 +31,7 @@ The game runs on a repeating daily cycle that escalates in difficulty with each 
     - Leg color
 
 ### View
-3. **Camera System**: Dynamic perspective modes including top-down and orbiting views.
+3. **Camera System**: Dynamic third-person orbiting camera with adjustable height, distance, and angle.
 
 ### Combat System
 4. **Shooting Mechanics**: Shooting-based combat is the primary form of fighting. Ammo is a limited resource; players must scavenge to resupply.
@@ -74,7 +74,7 @@ The game runs on a repeating daily cycle that escalates in difficulty with each 
 ### UI & Game Systems
 14. **HUD**: Includes health bar, ammo counter, day counter, and danger level indicator.
 15. **Notification System**: Real-time feedback for items collected, hacks triggered, or critical warnings.
-16. **Minimap**: (Optional/Exploration) Shows player location and points of interest.
+16. **Minimap**: Shows player location, enemy positions, and points of interest.
 
 ---
 
