@@ -28,6 +28,8 @@ class Camera:
     height = 500
     radius = 700
     fovY = 70
+    lastCamX = 0
+    lastCamZ = 0
 
     @classmethod
     def setupCamera(cls):
@@ -42,6 +44,9 @@ class Camera:
         camX = Player.x + cls.radius * math.cos(rad)
         camY = cls.height
         camZ = Player.z + cls.radius * math.sin(rad)
+        
+        cls.lastCamX = camX
+        cls.lastCamZ = camZ
 
         focusY = Player.legHeight + Player.bodyHeight + Player.headRadius
 
@@ -171,6 +176,12 @@ class TreeTile(WastelandTile):
     def draw(self):
         super().draw() # Draw wasteland base
         
+        # Don't draw tree if camera is inside/very close to it
+        dx = self.x - Camera.lastCamX
+        dz = self.z - Camera.lastCamZ
+        if (dx*dx + dz*dz) < 250**2:
+            return
+            
         glPushMatrix()
         glTranslatef(self.x, 0, self.z)
         
@@ -226,14 +237,19 @@ class Player:
     immunity = 0
     
     # Vehicle system
-    mode = "human" # "human" or "saucer"
+    mode = "human" # "human" or "spaceship"
     saucerHealth = 300
     maxSaucerHealth = 300
     saucerSpeed = 45
 
+    @classmethod
+    def exitSpaceship(cls):
+        if cls.mode == "spaceship":
+            cls.mode = "human"
+
     # Tunable render settings
-    legColor = (0.08, 0.12, 0.35)
-    bodyColor = (0.50, 0.10, 0.18)
+    legColor = [0.08, 0.12, 0.35]
+    bodyColor = [0.50, 0.10, 0.18]
     handColor = (0.8, 0.5, 0.25)
     headColor = (0.0, 0.0, 0.0)
     gunColor = (0.35, 0.35, 0.35)
@@ -264,7 +280,7 @@ class Player:
         if cls.mode == "human":
             cls.drawHuman()
         else:
-            cls.drawSaucer()
+            cls.drawSpaceship()
 
     @classmethod
     def drawHuman(cls):
@@ -342,7 +358,7 @@ class Player:
         glPopMatrix()
 
     @classmethod
-    def drawSaucer(cls):
+    def drawSpaceship(cls):
         glPushMatrix()
         # Hover effect
         hoverY = 40 + math.sin(time.time() * 3) * 15
@@ -364,20 +380,9 @@ class Player:
         glutSolidSphere(25, 20, 20)
         glPopMatrix()
 
-        # Lights
-        for i in range(8):
-            angle = i * (360/8)
-            rad = math.radians(angle)
-            lx = 100 * math.cos(rad)
-            lz = 100 * math.sin(rad)
-            glPushMatrix()
-            glTranslatef(lx, -5, lz)
-            glColor3f(1.0, 1.0, 0.0) # Yellow lights
-            glutSolidSphere(5, 10, 10)
-            glPopMatrix()
         # Navigation Light (Direction indicator - Front)
         glPushMatrix()
-        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glTranslatef(0, 5, 120) 
         glColor3f(1.0, 0.5, 0.0) # Bright orange
         glutSolidSphere(10, 10, 10)
         glPopMatrix()
@@ -458,6 +463,11 @@ class Bullet:
         self.z += self.speed * math.cos(rad)
         self.life -= 1
 
+        # Check tree collision
+        tile = Floor.getTile(self.x, self.z)
+        if tile and not tile.isWalkable:
+            self.life = 0
+
     def draw(self):
         glColor3f(*self.color)
         glPushMatrix()
@@ -472,6 +482,7 @@ class Gun:
 
     @classmethod
     def shoot(cls):
+        if Player.mode == "spaceship": return # Can't shoot while flying
         if cls.currentAmmo > 0:
             rad = math.radians(Player.angle)
             
@@ -551,6 +562,30 @@ class HealthPack:
             player.heal(30)
             return True
         return False
+
+class ShieldPack:
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+        self.y = 60
+        self.color = (0.2, 0.8, 1.0)
+        
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        angle = (time.time() * 100) % 360
+        glRotatef(angle, 0, 1, 0)
+        
+        glColor3f(*self.color)
+        # Single Vertical Plate
+        glScalef(0.8, 2.5, 1.8)
+        glutSolidSphere(20, 15, 15)
+        
+        glPopMatrix()
+        
+    def apply(self, player):
+        player.addImmunity(900) # 15 seconds of shield
+        return True
 
 class AmmoPack:
     def __init__(self, x, z):
@@ -698,7 +733,7 @@ class Enemy:
     def performAttack(self, dist):
         # Default melee damage
         if Player.immunity <= 0:
-            damagePool = "health" if Player.mode == "human" else "saucer"
+            damagePool = "health" if Player.mode == "human" else "spaceship"
             if damagePool == "health":
                 Player.health -= 0.3
             else:
@@ -798,7 +833,7 @@ class Tank(Enemy):
             muzzleZ = self.z + 80 * math.cos(rad)
             
             # Tank fires heavy shells (Bright glowing orange/gold)
-            Shooter.bullets.append(EnemyBullet(muzzleX, 70, muzzleZ, self.angle, damage=25, scale=12, color=(1.0, 0.6, 0.0)))
+            EnemyBullet.active.append(EnemyBullet(muzzleX, 70, muzzleZ, self.angle, damage=25, scale=12, color=(1.0, 0.6, 0.0)))
             self.shootTimer = 150 # Slow fire rate for balance
 
     def draw(self):
@@ -833,6 +868,7 @@ class Tank(Enemy):
         glPopMatrix()
 
 class EnemyBullet:
+    active = []
     def __init__(self, x, y, z, angle, damage=5, scale=5, color=(1.0, 0.2, 0.0)):
         self.x = x
         self.y = y
@@ -850,6 +886,12 @@ class EnemyBullet:
         self.z += self.speed * math.cos(rad)
         self.life -= 1
         
+        # Check tree collision
+        tile = Floor.getTile(self.x, self.z)
+        if tile and not tile.isWalkable:
+            self.life = 0
+            return
+            
         # Collision with player
         dx = self.x - Player.x
         dz = self.z - Player.z
@@ -867,7 +909,6 @@ class EnemyBullet:
         glPopMatrix()
 
 class Shooter(Enemy):
-    bullets = []
     def __init__(self, x, z):
         super().__init__(x, z, health=40, speed=3.0, color=(0.6, 0.2, 0.2))
         self.attackRange = 500
@@ -881,7 +922,7 @@ class Shooter(Enemy):
         
         self.shootTimer -= 1
         if self.shootTimer <= 0:
-            self.bullets.append(EnemyBullet(self.x, 60, self.z, self.angle))
+            EnemyBullet.active.append(EnemyBullet(self.x, 60, self.z, self.angle))
             self.shootTimer = 60
 
     def draw(self):
@@ -914,21 +955,44 @@ class EnemyManager:
         
     @classmethod
     def update(cls):
-        for enemy in cls.enemies[:]:
-            enemy.update()
-            if not enemy.isAlive:
-                cls.enemies.remove(enemy)
+        for e in cls.enemies[:]:
+            e.update()
+            if e.health <= 0:
+                cls.enemies.remove(e)
+                # Fun Drop Rates!
+                roll = random.random()
+                if roll < 0.30: # 30% chance to drop something
+                    # Key chance based on enemy difficulty
+                    keyRoll = random.random()
+                    keyChance = 0.01 # Mutant/Wanderer
+                    if hasattr(e, 'type'):
+                        if e.type == "shooter": keyChance = 0.08
+                        elif e.type == "tank": keyChance = 0.20
+                    
+                    if keyRoll < keyChance:
+                        item = Key
+                    else:
+                        # Other items
+                        otherRoll = random.random()
+                        if otherRoll < 0.50: item = AmmoPack
+                        elif otherRoll < 0.85: item = FoodPack
+                        else: item = ShieldPack
+                    
+                    # Spawn item at enemy's location
+                    tile = Floor.getTile(e.x, e.z)
+                    if tile:
+                        tile.spawnObject(item)
         
         # Update enemy bullets
-        for b in Shooter.bullets[:]:
+        for b in EnemyBullet.active[:]:
             b.update()
-            if b.life <= 0: Shooter.bullets.remove(b)
+            if b.life <= 0: EnemyBullet.active.remove(b)
                 
     @classmethod
     def draw(cls):
         for enemy in cls.enemies:
             enemy.draw()
-        for b in Shooter.bullets:
+        for b in EnemyBullet.active:
             b.draw()
 
 class FoodPack:
@@ -973,7 +1037,7 @@ class Spaceship:
         glutSolidSphere(40, 15, 15)
         glPopMatrix()
         
-        # Dome (More protruding)
+        # Dome
         glColor3f(0.0, 0.8, 1.0)
         glPushMatrix()
         glTranslatef(0, 15, 0)
@@ -981,9 +1045,9 @@ class Spaceship:
         glutSolidSphere(20, 15, 15)
         glPopMatrix()
 
-        # Front Indicator (For pickup)
+        # Front Indicator
         glPushMatrix()
-        glTranslatef(0, 5, 120) # Raised from -5 to 5 for visibility
+        glTranslatef(0, 5, 120)
         glColor3f(1.0, 0.5, 0.0)
         glutSolidSphere(10, 10, 10)
         glPopMatrix()
@@ -991,10 +1055,10 @@ class Spaceship:
         glPopMatrix()
 
     def apply(self, player):
-        player.mode = "saucer"
+        player.mode = "spaceship"
         return True
 
-class HUD:
+class UIManager:
     @staticmethod
     def drawText(x, y, text, color=(1, 1, 1)):
         glColor3f(*color)
@@ -1036,35 +1100,110 @@ class HUD:
         
         glDisable(GL_DEPTH_TEST)
 
+        if GameState.current == GameState.MENU:
+            cls.drawMenu()
+        elif GameState.current == GameState.CUSTOMIZE:
+            cls.drawCustomize()
+        elif GameState.current == GameState.PLAY:
+            cls.drawHUD()
+        elif GameState.current == GameState.PAUSE:
+            cls.drawPause()
+        elif GameState.current == GameState.GAMEOVER:
+            cls.drawGameOver()
+
+        glEnable(GL_DEPTH_TEST)
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+
+    @classmethod
+    def drawMenu(cls):
+        # Semi-transparent dark background (simulated without blend)
+        glColor3f(0.1, 0.1, 0.1)
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0); glVertex2f(Window.width, 0)
+        glVertex2f(Window.width, Window.height); glVertex2f(0, Window.height)
+        glEnd()
+        
+        cls.drawText(Window.width//2 - 100, Window.height//2 + 50, "WASTELAND ZERO", (1, 0.8, 0))
+        cls.drawText(Window.width//2 - 120, Window.height//2 - 20, "PRESS ENTER TO START", (1, 1, 1))
+
+    @classmethod
+    def drawCustomize(cls):
+        glColor3f(0.05, 0.05, 0.1)
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0); glVertex2f(Window.width, 0)
+        glVertex2f(Window.width, Window.height); glVertex2f(0, Window.height)
+        glEnd()
+        
+        cls.drawText(50, Window.height - 100, "CUSTOMIZE PLAYER", (1, 0.8, 0))
+        cls.drawText(50, Window.height - 150, "PRESS 1: CYCLE BODY COLOR", (1, 1, 1))
+        cls.drawText(50, Window.height - 180, "PRESS 2: CYCLE LEG COLOR", (1, 1, 1))
+        cls.drawText(50, Window.height - 250, "PRESS ENTER TO CONFIRM", (0, 1, 0.5))
+        
+        # Draw color previews
+        cls.drawText(Window.width - 300, Window.height - 150, "BODY COLOR")
+        glColor3f(*Player.bodyColor)
+        glBegin(GL_QUADS)
+        glVertex2f(Window.width - 300, Window.height - 200); glVertex2f(Window.width - 200, Window.height - 200)
+        glVertex2f(Window.width - 200, Window.height - 240); glVertex2f(Window.width - 300, Window.height - 240)
+        glEnd()
+        
+        cls.drawText(Window.width - 300, Window.height - 280, "LEG COLOR")
+        glColor3f(*Player.legColor)
+        glBegin(GL_QUADS)
+        glVertex2f(Window.width - 300, Window.height - 330); glVertex2f(Window.width - 200, Window.height - 330)
+        glVertex2f(Window.width - 200, Window.height - 370); glVertex2f(Window.width - 300, Window.height - 370)
+        glEnd()
+
+    @classmethod
+    def drawHUD(cls):
         # Draw Health Bar (Top Left)
         hpProgress = Player.health / Player.maxHealth
         cls.drawBar(20, Window.height - 40, 200, 20, hpProgress, (0.8, 0.1, 0.1))
         cls.drawText(20, Window.height - 60, f"HP: {int(Player.health)} / {Player.maxHealth}")
 
-        # Draw Food Bar (Below Health)
-        foodLimit = 10 # Example limit for the bar scale
+        # Draw Food Bar
+        foodLimit = 10
         foodProgress = min(1.0, Player.food / foodLimit)
         cls.drawBar(20, Window.height - 90, 200, 15, foodProgress, (0.1, 0.8, 0.1))
         cls.drawText(20, Window.height - 110, f"FOOD: {Player.food}")
 
-        # Draw Ammo (Top Right)
-        cls.drawText(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo} / {Gun.maxAmmo}")
-
-        # Draw Keys (Below Ammo)
+        cls.drawText(Window.width - 150, Window.height - 40, f"AMMO: {Gun.currentAmmo}")
         cls.drawText(Window.width - 150, Window.height - 70, f"KEYS: {Player.keys}")
+        cls.drawText(Window.width - 150, Window.height - 100, f"DAY: {DayNightManager.dayCount}")
 
-        # Draw Immunity (If active)
-        if Player.immunity > 0:
-            seconds = int(Player.immunity / 60) # Assuming ~60fps
-            cls.drawText(Window.width // 2 - 50, Window.height - 40, f"SHIELD: {seconds}s", (0.2, 0.8, 1.0))
-
-        glEnable(GL_DEPTH_TEST)
+        # Day/Night and Danger (Bottom Left)
+        isNight, _ = DayNightManager.getPhase()
+        danger = DayNightManager.getDanger()
+        dangerColor = (1, 0.2, 0) if DayNightManager.isDangerous() else (1, 0.7, 0)
         
-        # Switch back to 3D
-        glMatrixMode(GL_PROJECTION)
-        glPopMatrix()
-        glMatrixMode(GL_MODELVIEW)
-        glPopMatrix()
+        cls.drawBar(20, 30, 200, 12, danger, dangerColor)
+        phaseText = f"{'NIGHT' if isNight else 'DAY'}"
+        cls.drawText(20, 50, f"PHASE: {phaseText}")
+        if DayNightManager.isDangerous():
+            cls.drawText(110, 50, " (HAZARDOUS)", (1, 0.1, 0))
+
+        if Player.immunity > 0:
+            cls.drawText(Window.width // 2 - 50, Window.height - 40, f"SHIELD ACTIVE", (0.2, 0.8, 1.0))
+
+    @classmethod
+    def drawPause(cls):
+        cls.drawHUD() # Draw gameplay HUD behind
+        cls.drawText(Window.width//2 - 50, Window.height//2, "PAUSED", (1, 1, 0))
+        cls.drawText(Window.width//2 - 80, Window.height//2 - 30, "PRESS P TO RESUME", (1, 1, 1))
+        cls.drawText(Window.width//2 - 80, Window.height//2 - 60, "PRESS C TO CUSTOMIZE", (1, 1, 1))
+
+    @classmethod
+    def drawGameOver(cls):
+        glColor3f(0.2, 0, 0)
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0); glVertex2f(Window.width, 0)
+        glVertex2f(Window.width, Window.height); glVertex2f(0, Window.height)
+        glEnd()
+        cls.drawText(Window.width//2 - 80, Window.height//2 + 20, "GAME OVER", (1, 0, 0))
+        cls.drawText(Window.width//2 - 100, Window.height//2 - 30, "PRESS R TO RESTART", (1, 1, 1))
 
 class Key:
     def __init__(self, x, z):
@@ -1136,10 +1275,14 @@ class Chest:
             player.addImmunity(600)
             
             # Random reward
-            reward = random.choice(['hp', 'ammo', 'food'])
-            if reward == 'hp': player.heal(60)
-            elif reward == 'ammo': Gun.addAmmo(30)
-            else: player.addFood(3)
+            reward = random.choice(['hp', 'ammo', 'food', 'shield'])
+            if reward == 'hp': player.addHealth(35)
+            elif reward == 'ammo': Gun.currentAmmo += 20
+            elif reward == 'food': player.addFood(3)
+            elif reward == 'shield': player.addImmunity(1800) # 30s shield
+            
+            # Spawn a new chest elsewhere in the wasteland
+            Game.spawnNewChest()
             
             return True
         return False
@@ -1150,13 +1293,109 @@ class Game:
     Explosions = []
 
     @classmethod
+    def restart(cls):
+        # Reset Player
+        Player.x = 0
+        Player.z = 0
+        Player.angle = 0
+        Player.health = 100
+        Player.food = 3
+        Player.keys = 0
+        Player.immunity = 0
+        Player.mode = "human"
+        
+        # Reset Equipment
+        Gun.currentAmmo = 20
+        Gun.activeBullets = []
+        EnemyBullet.active = []
+        
+        # Reset DayNight
+        DayNightManager.dayCount = 1
+        DayNightManager.startTime = time.time()
+        DayNightManager._lastCycle = 0
+        
+        # Reset Entities
+        EnemyManager.enemies = []
+        cls.Bombs = []
+        cls.Explosions = []
+        cls.DelayedActions = []
+        
+        # Regenerate World
+        Floor.current = Wasteland(40, 40)
+        
+        GameState.current = GameState.PLAY
+
+    @classmethod
     def update(cls):
         for d in cls.DelayedActions[:]: d.update()
         for b in cls.Bombs[:]: b.update()
         for e in cls.Explosions[:]: e.update()
         Player.triggerTile()
+        Gun.updateBullets()
+        EnemyManager.update()
+        
+        if GameState.current == GameState.PLAY:
+            diff = DayNightManager.getDifficulty()
+            
+            # Random Bomb Drops
+            if random.random() < 0.002 * diff:
+                cls.spawnRandomBomb()
+                
+            # Random Enemy Spawning
+            enemyCap = 5 + int(diff * 2)
+            if len(EnemyManager.enemies) < enemyCap:
+                # Chance to spawn per frame (e.g., 1% * diff)
+                if random.random() < 0.005 * diff:
+                    cls.spawnRandomEnemy()
+
+    @classmethod
+    def spawnRandomEnemy(cls):
+        # Spawn at a distance from player
+        dist = random.randint(800, 1500)
+        angle = random.uniform(0, 2 * math.pi)
+        ex = Player.x + dist * math.cos(angle)
+        ez = Player.z + dist * math.sin(angle)
+        
+        # Pick type based on difficulty
+        diff = DayNightManager.getDifficulty()
+        types = ["mutant", "wanderer"]
+        if diff > 2: types.append("shooter")
+        if diff > 4: types.append("tank")
+        
+        etype = random.choice(types)
+        EnemyManager.spawnEnemy(ex, ez, etype)
+
+    @classmethod
+    def spawnNewChest(cls):
+        wasteland = Floor.wasteland
+        newPosition = wasteland.popRandomPosition()
+        wasteland.positions.append(wasteland.chestPosition)
+        wasteland.chestPosition = newPosition
+        r, c = newPosition
+        wasteland.spawnObject(r, c, Chest)
+
+    @classmethod
+    def spawnRandomBomb(cls):
+        # Pick a random walkable tile in the current floor
+        tiles = Floor.current.tiles
+        r = random.randint(0, len(tiles)-1)
+        c = random.randint(0, len(tiles[0])-1)
+        targetTile = tiles[r][c]
+        
+        if targetTile.isWalkable:
+            Bomb(targetTile.x, targetTile.z)
+        else:
+            # Try once more if we hit a tree
+            cls.spawnRandomBomb()
     
 class GameState:
+    MENU = 0
+    CUSTOMIZE = 1
+    PLAY = 2
+    PAUSE = 3
+    GAMEOVER = 4
+    
+    current = MENU
     inHomebase = False
 
 class Tileset:
@@ -1431,60 +1670,100 @@ class Floor:
     def getTile(cls, x, z):
         return cls.current.getTile(x, z)
 
-class Sky:
+class DayNightManager:
     dayColor = numpy.array([0.72, 0.68, 0.38])
     nightColor = numpy.array([0.01, 0.00, 0.03])
     phaseDuration = 30
     startTime = time.time()
+    dayCount = 1
+    _lastCycle = 0
 
     @classmethod
     def getPhase(cls):
         elapsedTime = time.time() - cls.startTime
         fullCycleTime = cls.phaseDuration * 2
-        cycleTime = elapsedTime % fullCycleTime
+        
+        cycle = int(elapsedTime / fullCycleTime)
+        if cycle > cls._lastCycle:
+            cls.dayCount += 1
+            cls._lastCycle = cycle
 
+        cycleTime = elapsedTime % fullCycleTime
         isNight = cycleTime >= cls.phaseDuration
         progress = (cycleTime % cls.phaseDuration) / cls.phaseDuration
 
         return isNight, progress
     
     @classmethod
-    def updateBackground(cls):
+    def getDifficulty(cls):
+        return cls.dayCount + (cls.getDanger() * 2.0)
+
+    @classmethod
+    def getDanger(cls):
+        isNight, progress = cls.getPhase()
+        return progress if not isNight else (1.0 - progress)
+
+    @classmethod
+    def isDangerous(cls):
+        return cls.getDanger() > 0.5
+
+    @classmethod
+    def updateSky(cls):
         isNight, progress = cls.getPhase()
 
-        if isNight:
-            currentColor = cls.dayColor + (cls.nightColor - cls.dayColor) * progress
-
-        else:
-            currentColor = cls.nightColor + (cls.dayColor - cls.nightColor) * progress
-
+        # Calculate brightness based on a sine wave that peaks at Noon (progress 0.5)
+        # During the day (0.0 to 1.0), brightness goes 0 -> 1 -> 0
+        brightness = 0
+        if not isNight:
+            brightness = math.sin(math.pi * progress)
+        
+        # Interpolate between dark night and bright day
+        currentColor = cls.nightColor + (cls.dayColor - cls.nightColor) * brightness
         glClearColor(*currentColor, 1)
 
 def keyboardListener(key, x, y):
+    if GameState.current == GameState.MENU:
+        if key == b'\r': # Enter
+            GameState.current = GameState.CUSTOMIZE
+        return
 
-    if key == b'w':  
-        Player.moveForward()
-    
-    if key == b's':
-        Player.moveBackward()
+    if GameState.current == GameState.CUSTOMIZE:
+        if key == b'\r': # Enter
+            GameState.current = GameState.PLAY
+        elif key == b'1': # Cycle body color
+            colors = [(0.5, 0.1, 0.18), (0.1, 0.5, 0.18), (0.1, 0.18, 0.5), (0.8, 0.8, 0.1)]
+            current_tuple = tuple(Player.bodyColor)
+            idx = (colors.index(current_tuple) + 1) % len(colors) if current_tuple in colors else 0
+            Player.bodyColor = list(colors[idx])
+        elif key == b'2': # Cycle leg color
+            colors = [(0.08, 0.12, 0.35), (0.35, 0.12, 0.08), (0.12, 0.35, 0.08), (0.5, 0.5, 0.5)]
+            current_tuple = tuple(Player.legColor)
+            idx = (colors.index(current_tuple) + 1) % len(colors) if current_tuple in colors else 0
+            Player.legColor = list(colors[idx])
+        return
 
-    if key == b'a':
-        Player.turnLeft()
+    if GameState.current == GameState.PLAY:
+        if key == b'w': Player.moveForward()
+        if key == b's': Player.moveBackward()
+        if key == b'a': Player.turnLeft()
+        if key == b'd': Player.turnRight()
+        if key == b'q' or key == b'Q': Player.exitSpaceship()
+        if key == b' ': Gun.shoot()
+        if key == b'b': Bomb(Player.x, Player.z)
+        if key == b'p': GameState.current = GameState.PAUSE
+        if key == b'=': Camera.radius += 5
+        if key == b'-': Camera.radius -= 5
+        return
 
-    if key == b'd':
-        Player.turnRight()
+    if GameState.current == GameState.PAUSE:
+        if key == b'p': GameState.current = GameState.PLAY
+        if key == b'c' or key == b'C': GameState.current = GameState.CUSTOMIZE
+        return
 
-    if key == b'=':
-        Camera.radius += 5
-
-    if key == b'-':
-        Camera.radius -= 5
-
-    if key == b' ':
-        Gun.shoot()
-    
-    if key == b'b':
-        Bomb(Player.x, Player.z)
+    if GameState.current == GameState.GAMEOVER:
+        if key == b'r' or key == b'R':
+            Game.restart()
+        return
 
 def specialKeyListener(key, x, y):
     if key == GLUT_KEY_LEFT:
@@ -1497,44 +1776,39 @@ def specialKeyListener(key, x, y):
         Camera.height -= 5
 
 def mouseListener(button, state, x, y):
-    if button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
-        Camera.playerPOV = not Camera.playerPOV
+    pass
             
 
 def animate():
-    Game.update()
+    if GameState.current == GameState.PLAY:
+        Game.update()
+        if Player.health <= 0:
+            GameState.current = GameState.GAMEOVER
     glutPostRedisplay()
 
 def display():
-    Sky.updateBackground()
+    DayNightManager.updateSky()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    glLoadIdentity()  # Reset modelview matrix
+    glLoadIdentity()
     glViewport(0, 0, Window.width, Window.height)
 
-    # HomeBase.update()
-    # HomeBase.checkEntry()
-
     Camera.setupCamera()
-    if not GameState.inHomebase:
-        Floor.draw()
-    # HomeBase.draw()
-    Player.draw()
-
-    # Update survival logic
-    if Player.immunity > 0:
-        Player.immunity -= 1
-
-    Gun.updateBullets()
-    Gun.drawBullets()
-
-    EnemyManager.update()
-    EnemyManager.draw()
-
-    for b in Game.Bombs: b.draw()
-    for e in Game.Explosions: e.draw()
-
-    HUD.draw()
     
+    # Draw scene
+    if GameState.current in [GameState.PLAY, GameState.PAUSE, GameState.GAMEOVER]:
+        Floor.draw()
+        Player.draw()
+        Gun.drawBullets()
+        EnemyManager.draw()
+        for b in Game.Bombs: b.draw()
+        for e in Game.Explosions: e.draw()
+
+    # Update survival logic (only during play)
+    if GameState.current == GameState.PLAY:
+        if Player.immunity > 0:
+            Player.immunity -= 1
+
+    UIManager.draw()
     glutSwapBuffers()
 
 
@@ -1549,16 +1823,14 @@ glutKeyboardFunc(keyboardListener)
 glutSpecialFunc(specialKeyListener)
 glutMouseFunc(mouseListener)
 glutIdleFunc(animate)
+Floor.wasteland = Wasteland(40, 40)
+Floor.current = Floor.wasteland
+
 # TEST SP AWNS - DELETE LATER
-# Floor.getTile(300, 300).spawnObject(HealthPack)
-# Floor.getTile(-300, 300).spawnObject(AmmoPack)
-# Floor.getTile(300, -300).spawnObject(FoodPack)
-# Floor.getTile(-300, -300).spawnObject(Key)
-# TEST ENEMIES
-# EnemyManager.spawnEnemy(500, 500, "mutant")
-# EnemyManager.spawnEnemy(-500, 500, "tank")
-# EnemyManager.spawnEnemy(0, 800, "shooter")
-# EnemyManager.spawnEnemy(-800, -800, "shooter")
-# EnemyManager.spawnEnemy(200, -600, "wanderer")
+Floor.getTile(300, 300).spawnObject(HealthPack)
+Floor.getTile(-300, 300).spawnObject(AmmoPack)
+Floor.getTile(300, -300).spawnObject(FoodPack)
+Floor.getTile(-300, -300).spawnObject(Key)
+Floor.getTile(0, 300).spawnObject(ShieldPack)
 
 glutMainLoop()
