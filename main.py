@@ -1345,6 +1345,20 @@ class UIManager:
 
         if Floor.current == Floor.wasteland:
             cls.drawMinimap()
+        elif Floor.current == Floor.homebase:
+            # Draw Homebase timer bar at bottom center
+            elapsed = time.time() - Floor.homebase.enterTime
+            remaining = max(0, Floor.homebase.homeDuration - elapsed)
+            progress = remaining / Floor.homebase.homeDuration
+            
+            barWidth = 300
+            barHeight = 15
+            bx = (Window.width - barWidth) // 2
+            by = 40
+            
+            cls.drawText(bx, by + 20, "TIME UNTIL DEPLOYMENT", (0.8, 0.8, 0.2))
+            cls.drawBar(bx, by, barWidth, barHeight, progress, (0.7, 0.7, 0.1))
+            cls.drawText(bx + barWidth + 10, by, "PRESS [Q] TO LEAVE EARLY", (0.6, 0.6, 0.6))
 
     @classmethod
     def drawPause(cls):
@@ -1651,15 +1665,18 @@ class Homebase(Tileset):
     def enter(self, portal):
         Floor.current = Floor.homebase
         self.originPortal = portal
+        self.enterTime = time.time()
         Player.x = 0
         Player.z = 0
         DelayedAction(self.homeDuration, self.exit)
     
     def exit(self):
+        if Floor.current != Floor.homebase: return
         Floor.current = Floor.wasteland
         Player.x = self.originPortal.x
         Player.z = self.originPortal.z
         self.originPortal = None
+        self.enterTime = None
         PortalTile.disable()
 
 
@@ -1922,7 +1939,9 @@ def keyboardListener(key, x, y):
         if key == b's': Player.moveBackward()
         if key == b'a': Player.turnLeft()
         if key == b'd': Player.turnRight()
-        if key == b'q' or key == b'Q': Player.exitSpaceship()
+        if key == b'q' or key == b'Q':
+            if Floor.current == Floor.homebase: Floor.homebase.exit()
+            else: Player.exitSpaceship()
         if key == b' ': Gun.shoot()
         if key == b'b': Bomb(Player.x, Player.z)
         if key == b'p': GameState.current = GameState.PAUSE
